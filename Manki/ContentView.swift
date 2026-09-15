@@ -1,50 +1,114 @@
+import Foundation
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = RSLibViewModel()
+    @State private var decks = Deck.sampleDecks
+    @State private var lastSyncDate = Date()
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 Section {
-                    Button {
-                        model.startEngine()
-                    } label: {
-                        if model.isStarting {
-                            HStack {
-                                ProgressView()
-                                Text("Starting Anki engine…")
-                            }
-                        } else {
-                            Text("Start Anki engine")
+                    ForEach(decks) { deck in
+                        NavigationLink(value: deck) {
+                            Label(deck.name, systemImage: "rectangle.stack.fill")
                         }
                     }
-                    .disabled(model.isStarting)
+                    .onDelete(perform: deleteDecks)
                 } footer: {
-                    Text("Manki uses Anki’s Rust backend directly. Authentication, collection access, scheduling, and sync must go through its protobuf service API; no AnkiWeb protocol is reimplemented in Swift.")
+                    Text("Last synced \(lastSyncDate.formatted(date: .abbreviated, time: .shortened))")
                 }
 
-                if let result = model.result {
-                    Section("Result") {
+                if let result = model.result, !result.isSuccess {
+                    Section("Anki Engine") {
                         Label(result.message, systemImage: result.symbolName)
-                            .foregroundStyle(result.isSuccess ? .green : .red)
+                            .foregroundStyle(.red)
 
                         if let details = result.details {
                             Text(details)
-                                .font(.footnote.monospaced())
-                                .textSelection(.enabled)
+                                .font(.footnote)
                         }
                     }
                 }
+            }
+            .navigationTitle("My Decks")
+            .navigationDestination(for: Deck.self) { deck in
+                DeckDetailView(deck: deck)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button("New Deck", systemImage: "plus") {
+                            addDeck()
+                        }
 
-                Section("Scope") {
-                    Label("Official Anki collection backend", systemImage: "checkmark.shield")
-                    Label("Protobuf RPC bridge", systemImage: "arrow.left.arrow.right")
-                    Label("Native SQLite, scheduler, and sync engine", systemImage: "externaldrive")
+                        Button("Start Anki Engine", systemImage: "bolt.fill") {
+                            model.startEngine()
+                        }
+                        .disabled(model.isStarting)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Deck actions")
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        sync()
+                    } label: {
+                        if model.isStarting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(model.isStarting)
+                    .accessibilityLabel("Sync")
                 }
             }
-            .navigationTitle("Manki")
+            .refreshable {
+                sync()
+            }
         }
+    }
+
+    private func addDeck() {
+        decks.append(Deck(name: "New Deck"))
+    }
+
+    private func deleteDecks(at offsets: IndexSet) {
+        decks.remove(atOffsets: offsets)
+    }
+
+    private func sync() {
+        model.startEngine()
+        lastSyncDate = .now
+    }
+}
+
+private struct Deck: Identifiable, Hashable {
+    let id = UUID()
+    let name: String
+
+    static let sampleDecks = [
+        Deck(name: "Default"),
+        Deck(name: "Genetics"),
+        Deck(name: "Немецкий для начинающих — слова")
+    ]
+}
+
+private struct DeckDetailView: View {
+    let deck: Deck
+
+    var body: some View {
+        ContentUnavailableView(
+            deck.name,
+            systemImage: "rectangle.stack",
+            description: Text("Cards for this deck will appear here.")
+        )
+        .navigationTitle(deck.name)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
