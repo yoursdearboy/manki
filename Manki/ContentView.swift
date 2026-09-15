@@ -24,9 +24,12 @@ struct ContentView: View {
                                 NavigationLink {
                                     ReviewerView(model: model, deck: deck)
                                 } label: {
-                                    Label(deck.name, systemImage: "rectangle.stack.fill")
+                                    DeckListRow(deck: deck)
                                 }
+                                .frame(minHeight: 44)
                             }
+                        } header: {
+                            DeckListHeader()
                         } footer: {
                             Text(model.lastSyncedText)
                         }
@@ -100,6 +103,61 @@ struct ContentView: View {
             .navigationTitle("Manki")
             .navigationBarTitleDisplayMode(.large)
         }
+    }
+}
+
+private struct DeckListHeader: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("Deck")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("New").frame(width: 40)
+            Text("Learn").frame(width: 40)
+            Text("Due").frame(width: 40)
+        }
+        .font(.caption.weight(.semibold))
+        .textCase(nil)
+    }
+}
+
+private struct DeckListRow: View {
+    let deck: Deck
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(deck.name)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            SchedulerCount(deck.newCount, color: .blue)
+            SchedulerCount(deck.learnCount, color: .red)
+            SchedulerCount(deck.dueCount, color: .green)
+        }
+        .font(.body.weight(.medium))
+        .padding(.vertical, 4)
+    }
+}
+
+private struct SchedulerCount: View {
+    let value: Int
+    let color: Color
+
+    private var accessibilityText: String {
+        "\(value) \(value == 1 ? "card" : "cards")"
+    }
+
+    init(_ value: Int, color: Color) {
+        self.value = value
+        self.color = color
+    }
+
+    var body: some View {
+        Text(value, format: .number)
+            .foregroundStyle(value == 0 ? .secondary : color)
+            .frame(width: 40, alignment: .center)
+            .monospacedDigit()
+            .accessibilityLabel(accessibilityText)
     }
 }
 
