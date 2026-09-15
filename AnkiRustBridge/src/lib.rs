@@ -17,8 +17,10 @@ use std::{
 use anki::backend::{init_backend, Backend};
 use anki_proto::{
     backend::BackendError,
+    card_rendering::{rendered_template_node::Value as RenderedNodeValue, RenderCardResponse, RenderExistingCardRequest},
     collection::{CloseCollectionRequest, OpenCollectionRequest},
-    decks::{DeckNames, GetDeckNamesRequest},
+    decks::{DeckId, DeckNames, GetDeckNamesRequest},
+    scheduler::{card_answer::Rating, CardAnswer, GetQueuedCardsRequest, QueuedCards},
     sync::{
         sync_collection_response::ChangesRequired, FullUploadOrDownloadRequest, SyncAuth,
         SyncCollectionRequest, SyncCollectionResponse, SyncLoginRequest,
@@ -42,6 +44,12 @@ const SYNC_LOGIN: u32 = 3;
 const SYNC_COLLECTION: u32 = 5;
 const FULL_UPLOAD_OR_DOWNLOAD: u32 = 6;
 const GET_DECK_NAMES: u32 = 13;
+const SET_CURRENT_DECK: u32 = 22;
+const GET_QUEUED_CARDS: u32 = 3;
+const ANSWER_CARD: u32 = 4;
+const RENDER_EXISTING_CARD: u32 = 6;
+const SERVICE_SCHEDULER: u32 = 13;
+const SERVICE_CARD_RENDERING: u32 = 27;
 
 /// Initializes an Anki backend from a serialized `BackendInit` protobuf.
 #[no_mangle]
@@ -188,6 +196,78 @@ pub unsafe extern "C" fn manki_anki_fetch_decks(
     }
 }
 
+/// Retrieves the first due card from a selected deck, rendered by rslib.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_get_next_card(
+    collection_path: *const c_char,
+    deck_id: i64,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    review_operation(collection_path, out_data, out_len, |backend| {
+        select_deck(backend, deck_id)?;
+        let queued = queued_cards(backend)?;
+        let Some(card) = queued.cards.into_iter().next() else {
+            return Ok(b"null".to_vec());
+        };
+        let card_id = card.card.ok_or("scheduler returned a card without an id")?.id;
+        let rendered: RenderCardResponse = call(
+            backend,
+            SERVICE_CARD_RENDERING,
+            RENDER_EXISTING_CARD,
+            RenderExistingCardRequest { card_id, browser: false, partial_render: false },
+        )?;
+        serde_json::to_vec(&json!({
+            "id": card_id,
+            "question": rendered_text(rendered.question_nodes),
+            "answer": rendered_text(rendered.answer_nodes),
+        }))
+        .map_err(|error| format!("could not encode card: {error}"))
+    })
+}
+
+/// Re-fetches the queued card's states and delegates its scheduling to rslib.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_answer_card(
+    collection_path: *const c_char,
+    deck_id: i64,
+    card_id: i64,
+    rating: i32,
+    milliseconds_taken: u32,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    review_operation(collection_path, out_data, out_len, |backend| {
+        let rating = Rating::try_from(rating).map_err(|_| "invalid card rating")?;
+        select_deck(backend, deck_id)?;
+        let queued = queued_cards(backend)?;
+        let queued_card = queued.cards.into_iter()
+            .find(|item| item.card.as_ref().is_some_and(|card| card.id == card_id))
+            .ok_or("the card is no longer due; refresh the deck and try again")?;
+        let states = queued_card.states.ok_or("scheduler returned no scheduling states")?;
+        let next_state = match rating {
+            Rating::Again => states.again,
+            Rating::Hard => states.hard,
+            Rating::Good => states.good,
+            Rating::Easy => states.easy,
+        }.ok_or("scheduler returned an incomplete scheduling state")?;
+        let _ = call::<_, anki_proto::collection::OpChanges>(
+            backend,
+            SERVICE_SCHEDULER,
+            ANSWER_CARD,
+            CardAnswer {
+                card_id,
+                current_state: states.current,
+                new_state: Some(next_state),
+                rating: rating as i32,
+                answered_at_millis: now_millis(),
+                milliseconds_taken,
+            },
+        )?;
+        Ok(b"{}".to_vec())
+    })
+}
+
 unsafe fn c_string(value: *const c_char) -> Result<String, String> {
     unsafe { CStr::from_ptr(value) }
         .to_str()
@@ -226,6 +306,101 @@ fn fetch_decks(
     let decks = result?;
     close_result?;
     Ok(decks)
+}
+
+fn review_operation(
+    collection_path: *const c_char,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+    operation: impl FnOnce(&Backend) -> Result<Vec<u8>, String>,
+) -> c_int {
+    if collection_path.is_null() || out_data.is_null() || out_len.is_null() {
+        return INVALID_ARGUMENT;
+    }
+    unsafe {
+        *out_data = ptr::null_mut();
+        *out_len = 0;
+    }
+
+    let result = (|| -> Result<Vec<u8>, String> {
+        let collection_path = unsafe { c_string(collection_path) }?;
+        with_open_collection(&collection_path, operation)
+    })();
+    match result {
+        Ok(data) => {
+            unsafe { set_output(data, out_data, out_len) };
+            OK
+        }
+        Err(error) => {
+            unsafe { set_output(error.into_bytes(), out_data, out_len) };
+            FETCH_ERROR
+        }
+    }
+}
+
+fn with_open_collection(
+    collection_path: &str,
+    operation: impl FnOnce(&Backend) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, String> {
+    let collection_path = PathBuf::from(collection_path);
+    let parent = collection_path.parent().ok_or("collection path has no parent directory")?;
+    fs::create_dir_all(parent).map_err(|error| format!("could not create collection directory: {error}"))?;
+    let backend = init_backend(&anki_proto::backend::BackendInit::default().encode_to_vec())
+        .map_err(|error| format!("could not initialize Anki rslib: {error}"))?;
+    call::<_, anki_proto::generic::Empty>(
+        &backend,
+        SERVICE_COLLECTION,
+        OPEN_COLLECTION,
+        OpenCollectionRequest {
+            collection_path: collection_path.display().to_string(),
+            media_folder_path: media_folder(&collection_path)?.display().to_string(),
+            media_db_path: media_database(&collection_path)?.display().to_string(),
+        },
+    )?;
+    let result = operation(&backend);
+    let close_result = call::<_, anki_proto::generic::Empty>(
+        &backend,
+        SERVICE_COLLECTION,
+        CLOSE_COLLECTION,
+        CloseCollectionRequest::default(),
+    );
+    let output = result?;
+    close_result?;
+    Ok(output)
+}
+
+fn select_deck(backend: &Backend, deck_id: i64) -> Result<(), String> {
+    let _ = call::<_, anki_proto::collection::OpChanges>(
+        backend,
+        SERVICE_DECKS,
+        SET_CURRENT_DECK,
+        DeckId { did: deck_id },
+    )?;
+    Ok(())
+}
+
+fn queued_cards(backend: &Backend) -> Result<QueuedCards, String> {
+    call(
+        backend,
+        SERVICE_SCHEDULER,
+        GET_QUEUED_CARDS,
+        GetQueuedCardsRequest { fetch_limit: 1, intraday_learning_only: false },
+    )
+}
+
+fn rendered_text(nodes: Vec<anki_proto::card_rendering::RenderedTemplateNode>) -> String {
+    nodes.into_iter().filter_map(|node| match node.value {
+        Some(RenderedNodeValue::Text(text)) => Some(text),
+        Some(RenderedNodeValue::Replacement(replacement)) => Some(replacement.current_text),
+        None => None,
+    }).collect()
+}
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 fn fetch_decks_from_open_collection(

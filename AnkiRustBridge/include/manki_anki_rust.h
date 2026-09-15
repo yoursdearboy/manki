@@ -58,4 +58,30 @@ int manki_anki_fetch_decks(
     size_t *out_len
 );
 
+/**
+ * Returns the next due card in a deck as UTF-8 JSON, including rendered
+ * question and answer HTML. The result is `null` when the deck has no card
+ * due now. Free the response with manki_anki_free_response().
+ */
+int manki_anki_get_next_card(
+    const char *collection_path,
+    int64_t deck_id,
+    uint8_t **out_data,
+    size_t *out_len
+);
+
+/**
+ * Applies an Anki scheduler rating (0 Again, 1 Hard, 2 Good, 3 Easy) to the
+ * current queued card. Free the response with manki_anki_free_response().
+ */
+int manki_anki_answer_card(
+    const char *collection_path,
+    int64_t deck_id,
+    int64_t card_id,
+    int32_t rating,
+    uint32_t milliseconds_taken,
+    uint8_t **out_data,
+    size_t *out_len
+);
+
 #endif
