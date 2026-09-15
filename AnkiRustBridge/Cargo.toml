@@ -1,0 +1,22 @@
+[package]
+name = "manki-anki-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+# This bridge intentionally has a narrow C ABI. The protobuf API exposed by
+# rslib remains the source of truth; Swift passes serialized request/response
+# messages without reimplementing Anki collection or sync rules.
+[dependencies]
+anki = { path = "../Vendor/anki/rslib", features = ["rustls"] }
+anki_proto = { path = "../Vendor/anki/rslib/proto" }
+prost = "0.13"
+serde_json = "1.0"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

@@ -1,0 +1,4 @@
+.build/
+Vendor/
+Frameworks/
+AnkiRustBridge/target/
