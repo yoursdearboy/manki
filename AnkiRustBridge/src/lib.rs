@@ -19,7 +19,7 @@ use anki_proto::{
     backend::BackendError,
     card_rendering::{rendered_template_node::Value as RenderedNodeValue, RenderCardResponse, RenderExistingCardRequest},
     collection::{CloseCollectionRequest, OpenCollectionRequest},
-    decks::{DeckId, DeckNames, GetDeckNamesRequest},
+    decks::{DeckId, DeckNames, DeckTreeNode, DeckTreeRequest, GetDeckNamesRequest},
     scheduler::{card_answer::Rating, CardAnswer, GetQueuedCardsRequest, QueuedCards},
     sync::{
         sync_collection_response::ChangesRequired, FullUploadOrDownloadRequest, SyncAuth,
@@ -43,6 +43,7 @@ const CLOSE_COLLECTION: u32 = 1;
 const SYNC_LOGIN: u32 = 3;
 const SYNC_COLLECTION: u32 = 5;
 const FULL_UPLOAD_OR_DOWNLOAD: u32 = 6;
+const DECK_TREE: u32 = 4;
 const GET_DECK_NAMES: u32 = 13;
 const SET_CURRENT_DECK: u32 = 22;
 const GET_QUEUED_CARDS: u32 = 3;
@@ -460,7 +461,7 @@ fn fetch_decks_from_open_collection(
         ChangesRequired::FullSync => return Err("Anki requires a full-sync direction choice; refusing to overwrite either collection".into()),
     }
 
-    let decks: DeckNames = call(
+    let deck_names: DeckNames = call(
         backend,
         SERVICE_DECKS,
         GET_DECK_NAMES,
@@ -469,12 +470,45 @@ fn fetch_decks_from_open_collection(
             include_filtered: false,
         },
     )?;
-    let decks = decks
+    let counts = call::<_, DeckTreeNode>(
+        backend,
+        SERVICE_DECKS,
+        DECK_TREE,
+        DeckTreeRequest { now: now_millis() },
+    )?;
+    let mut counts_by_deck = std::collections::HashMap::new();
+    collect_deck_counts(&counts, &mut counts_by_deck);
+
+    let decks = deck_names
         .entries
         .into_iter()
-        .map(|deck| json!({ "id": deck.id, "name": deck.name }))
+        .map(|deck| {
+            let counts = counts_by_deck.get(&deck.id).copied().unwrap_or_default();
+            json!({
+                "id": deck.id,
+                "name": deck.name,
+                "new": counts.0,
+                "learn": counts.1,
+                "due": counts.2,
+            })
+        })
         .collect::<Vec<_>>();
     serde_json::to_vec(&decks).map_err(|error| format!("could not encode deck list: {error}"))
+}
+
+/// DeckTreeNode count fields are already constrained by Anki's scheduler
+/// limits, including limits inherited from parent decks. Flatten the tree so
+/// the existing Swift deck list can retain its simple, alphabetical layout.
+fn collect_deck_counts(
+    node: &DeckTreeNode,
+    counts_by_deck: &mut std::collections::HashMap<i64, (u32, u32, u32)>,
+) {
+    if node.deck_id != 0 {
+        counts_by_deck.insert(node.deck_id, (node.new_count, node.learn_count, node.review_count));
+    }
+    for child in &node.children {
+        collect_deck_counts(child, counts_by_deck);
+    }
 }
 
 fn call<Request: Message, Response: Message + Default>(

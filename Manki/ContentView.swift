@@ -35,6 +35,8 @@ struct ContentView: View {
                                 .font(.system(size: 28, weight: .heavy, design: .rounded))
                                 .foregroundStyle(MankiPalette.ink)
                                 .padding(.horizontal, 24).padding(.top, 8)
+                            DeckSchedulerHeader()
+                                .padding(.horizontal, 34)
                             ForEach(Array(model.decks.enumerated()), id: \.element.id) { index, deck in
                                 NavigationLink { ReviewerView(model: model, deck: deck) } label: {
                                     DeckRow(deck: deck, accent: deckAccent(for: index))
@@ -144,11 +146,52 @@ private struct DeckRow: View {
         HStack(spacing: 16) {
             ZStack { RoundedRectangle(cornerRadius: 17, style: .continuous).fill(accent.opacity(0.14)); Image(systemName: "rectangle.stack.fill").font(.title3.weight(.bold)).foregroundStyle(accent) }
                 .frame(width: 58, height: 58)
-            Text(deck.name).font(.system(.headline, design: .rounded, weight: .bold)).foregroundStyle(MankiPalette.ink).lineLimit(2)
-            Spacer(minLength: 6)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(deck.name).font(.system(.headline, design: .rounded, weight: .bold)).foregroundStyle(MankiPalette.ink).lineLimit(2)
+                HStack(spacing: 8) {
+                    DeckSchedulerCount(deck.newCount, color: MankiPalette.sky)
+                    DeckSchedulerCount(deck.learnCount, color: MankiPalette.coral)
+                    DeckSchedulerCount(deck.dueCount, color: .green)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(accent)
         }.padding(14).background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(MankiPalette.ink.opacity(0.10), lineWidth: 1.5) }
+    }
+}
+
+private struct DeckSchedulerHeader: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            Color.clear.frame(width: 58, height: 1)
+            Text("DECK").frame(maxWidth: .infinity, alignment: .leading)
+            Text("NEW").frame(width: 32)
+            Text("LEARN").frame(width: 32)
+            Text("DUE").frame(width: 32)
+            Color.clear.frame(width: 8, height: 1)
+        }
+        .font(.caption2.weight(.heavy))
+        .foregroundStyle(MankiPalette.softInk)
+        .tracking(0.7)
+    }
+}
+
+private struct DeckSchedulerCount: View {
+    let value: Int
+    let color: Color
+
+    init(_ value: Int, color: Color) {
+        self.value = value
+        self.color = color
+    }
+
+    var body: some View {
+        Text(value, format: .number)
+            .font(.caption.weight(.heavy))
+            .foregroundStyle(value == 0 ? MankiPalette.softInk.opacity(0.55) : color)
+            .frame(width: 32)
+            .monospacedDigit()
+            .accessibilityLabel("\(value) \(value == 1 ? "card" : "cards")")
     }
 }
 
@@ -206,7 +249,7 @@ private struct ReviewerView: View {
     }
 
     private func color(for rating: CardRating) -> Color {
-        switch rating { case .again: .red; case .hard: .orange; case .good: MankiPalette.sky; case .easy: MankiPalette.violet }
+        switch rating { case .again: .red; case .hard: .orange; case .good: .blue; case .easy: .green }
     }
 }
 

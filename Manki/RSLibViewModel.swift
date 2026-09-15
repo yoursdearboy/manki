@@ -4,6 +4,16 @@ import Security
 struct Deck: Identifiable, Decodable, Hashable {
     let id: Int64
     let name: String
+    let newCount: Int
+    let learnCount: Int
+    let dueCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name
+        case newCount = "new"
+        case learnCount = "learn"
+        case dueCount = "due"
+    }
 }
 
 struct ReviewCard: Decodable, Identifiable, Equatable {
