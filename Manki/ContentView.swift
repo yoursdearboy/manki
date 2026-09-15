@@ -8,6 +8,10 @@ private enum MankiPalette {
     static let softInk = Color(red: 0.40, green: 0.45, blue: 0.49)
     static let coral = Color(red: 1.00, green: 0.49, blue: 0.34)
     static let violet = Color(red: 0.48, green: 0.37, blue: 0.88)
+    static let reviewAgain = Color(red: 0.86, green: 0.28, blue: 0.28)
+    static let reviewHard = Color(red: 0.92, green: 0.52, blue: 0.16)
+    static let reviewGood = Color(red: 0.10, green: 0.49, blue: 0.78)
+    static let reviewEasy = Color(red: 0.20, green: 0.62, blue: 0.38)
 }
 
 struct ContentView: View {
@@ -35,14 +39,15 @@ struct ContentView: View {
                                 .font(.system(size: 28, weight: .heavy, design: .rounded))
                                 .foregroundStyle(MankiPalette.ink)
                                 .padding(.horizontal, 24).padding(.top, 8)
-                            DeckSchedulerHeader()
-                                .padding(.horizontal, 34)
                             ForEach(Array(model.decks.enumerated()), id: \.element.id) { index, deck in
                                 NavigationLink { ReviewerView(model: model, deck: deck) } label: {
                                     DeckRow(deck: deck, accent: deckAccent(for: index))
                                 }
                                 .buttonStyle(.plain).padding(.horizontal, 20)
                             }
+                            DeckSchedulerLegend()
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 2)
                             Text(model.lastSyncedText)
                                 .font(.caption.weight(.medium)).foregroundStyle(MankiPalette.softInk)
                                 .frame(maxWidth: .infinity).padding(.top, 12).padding(.bottom, 30)
@@ -160,22 +165,6 @@ private struct DeckRow: View {
     }
 }
 
-private struct DeckSchedulerHeader: View {
-    var body: some View {
-        HStack(spacing: 16) {
-            Color.clear.frame(width: 58, height: 1)
-            Text("DECK").frame(maxWidth: .infinity, alignment: .leading)
-            Text("NEW").frame(width: 32)
-            Text("LEARN").frame(width: 32)
-            Text("DUE").frame(width: 32)
-            Color.clear.frame(width: 8, height: 1)
-        }
-        .font(.caption2.weight(.heavy))
-        .foregroundStyle(MankiPalette.softInk)
-        .tracking(0.7)
-    }
-}
-
 private struct DeckSchedulerCount: View {
     let value: Int
     let color: Color
@@ -192,6 +181,19 @@ private struct DeckSchedulerCount: View {
             .frame(width: 32)
             .monospacedDigit()
             .accessibilityLabel("\(value) \(value == 1 ? "card" : "cards")")
+    }
+}
+
+private struct DeckSchedulerLegend: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("New").foregroundStyle(MankiPalette.sky)
+            Text("Learn").foregroundStyle(MankiPalette.coral)
+            Text("Due").foregroundStyle(.green)
+        }
+        .font(.caption2.weight(.heavy))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Deck counts: New, Learn, Due")
     }
 }
 
@@ -225,11 +227,15 @@ private struct ReviewerView: View {
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
         VStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 18) {
-                Text(showingAnswer ? "answer" : "question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+                Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         CardText(html: card.question)
-                        if showingAnswer { Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1); CardText(html: card.answer) }
+                        if showingAnswer {
+                            Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
+                            Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+                            CardText(html: card.answer.answerBody)
+                        }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -249,7 +255,12 @@ private struct ReviewerView: View {
     }
 
     private func color(for rating: CardRating) -> Color {
-        switch rating { case .again: .red; case .hard: .orange; case .good: .blue; case .easy: .green }
+        switch rating {
+        case .again: MankiPalette.reviewAgain
+        case .hard: MankiPalette.reviewHard
+        case .good: MankiPalette.reviewGood
+        case .easy: MankiPalette.reviewEasy
+        }
     }
 }
 
@@ -259,6 +270,19 @@ private struct CardText: View {
     private var plainText: String {
         html.replacingOccurrences(of: "<br>", with: "\n").replacingOccurrences(of: "<br/>", with: "\n").replacingOccurrences(of: "<br />", with: "\n")
             .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&amp;", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension String {
+    /// Anki's default answer template repeats `{{FrontSide}}` before an
+    /// `<hr id=answer>` separator. The question is already displayed above,
+    /// so reveal only the content after that separator.
+    var answerBody: String {
+        let separator = #"<hr\b[^>]*\bid\s*=\s*(?:\"answer\"|'answer'|answer)[^>]*>"#
+        guard let range = range(of: separator, options: [.regularExpression, .caseInsensitive]) else {
+            return self
+        }
+        return String(self[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -312,8 +336,9 @@ private struct ReviewRatingButton: ButtonStyle {
     let color: Color
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.caption.weight(.heavy)).foregroundStyle(color).frame(maxWidth: .infinity).frame(height: 48)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(color.opacity(0.45), lineWidth: 1.5) }.opacity(configuration.isPressed ? 0.65 : 1)
+            .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(color.opacity(0.32), lineWidth: 1.5) }
+            .opacity(configuration.isPressed ? 0.65 : 1)
     }
 }
 

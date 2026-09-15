@@ -12,6 +12,7 @@
 		A00000000000000000000003 /* RSLibViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013 /* RSLibViewModel.swift */; };
 		A00000000000000000000004 /* AnkiRSLibBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* AnkiRSLibBackend.swift */; };
 		A00000000000000000000006 /* Frameworks/MankiAnkiRust.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* Frameworks/MankiAnkiRust.xcframework */; };
+		A00000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -21,6 +22,7 @@
 		A00000000000000000000013 /* RSLibViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSLibViewModel.swift; sourceTree = "<group>"; };
 		A00000000000000000000014 /* AnkiRSLibBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiRSLibBackend.swift; sourceTree = "<group>"; };
 		A00000000000000000000016 /* Frameworks/MankiAnkiRust.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/MankiAnkiRust.xcframework; sourceTree = "<group>"; };
+		A00000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -59,6 +61,7 @@
 				A00000000000000000000012 /* ContentView.swift */,
 				A00000000000000000000013 /* RSLibViewModel.swift */,
 				A00000000000000000000014 /* AnkiRSLibBackend.swift */,
+				A00000000000000000000017 /* Assets.xcassets */,
 			);
 			path = Manki;
 			sourceTree = "<group>";
@@ -121,6 +124,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000007 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

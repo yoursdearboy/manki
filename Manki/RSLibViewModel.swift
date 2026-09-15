@@ -14,6 +14,18 @@ struct Deck: Identifiable, Decodable, Hashable {
         case learnCount = "learn"
         case dueCount = "due"
     }
+
+    /// Older copies of the bundled Rust framework only returned an id and
+    /// name. Keep those collections usable while treating unavailable
+    /// scheduler counts as zero; a rebuilt framework supplies the real counts.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(Int64.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        newCount = try values.decodeIfPresent(Int.self, forKey: .newCount) ?? 0
+        learnCount = try values.decodeIfPresent(Int.self, forKey: .learnCount) ?? 0
+        dueCount = try values.decodeIfPresent(Int.self, forKey: .dueCount) ?? 0
+    }
 }
 
 struct ReviewCard: Decodable, Identifiable, Equatable {

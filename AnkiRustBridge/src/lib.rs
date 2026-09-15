@@ -474,7 +474,9 @@ fn fetch_decks_from_open_collection(
         backend,
         SERVICE_DECKS,
         DECK_TREE,
-        DeckTreeRequest { now: now_millis() },
+        // DeckTreeRequest takes TimestampSecs; milliseconds make every card
+        // appear to be scheduled far in the future.
+        DeckTreeRequest { now: now_secs() },
     )?;
     let mut counts_by_deck = std::collections::HashMap::new();
     collect_deck_counts(&counts, &mut counts_by_deck);
@@ -509,6 +511,13 @@ fn collect_deck_counts(
     for child in &node.children {
         collect_deck_counts(child, counts_by_deck);
     }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn call<Request: Message, Response: Message + Default>(
