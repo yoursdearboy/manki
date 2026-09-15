@@ -2,24 +2,11 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = RSLibViewModel()
-    @State private var menuIsOpen = false
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Group {
-                if model.isAuthenticated { decksScreen } else { signInScreen }
-            }
-            .offset(x: menuIsOpen ? 286 : 0)
-            .disabled(menuIsOpen)
-
-            if menuIsOpen {
-                Color.black.opacity(0.28).ignoresSafeArea()
-                    .onTapGesture { withAnimation(.spring(response: 0.3)) { menuIsOpen = false } }
-                    .offset(x: 286)
-            }
-            if model.isAuthenticated { sideMenu.offset(x: menuIsOpen ? 0 : -286) }
+        Group {
+            if model.isAuthenticated { decksScreen } else { signInScreen }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: menuIsOpen)
         .task { await model.restoreSession() }
     }
 
@@ -31,26 +18,37 @@ struct ContentView: View {
                 } else if model.decks.isEmpty {
                     ContentUnavailableView("No decks yet", systemImage: "rectangle.stack.badge.plus", description: Text("Create a deck in Anki, then sync again."))
                 } else {
-                    List(model.decks) { deck in
-                        NavigationLink {
-                            ReviewerView(model: model, deck: deck)
-                        } label: {
-                            Label(deck.name, systemImage: "rectangle.stack.fill")
-                                .foregroundStyle(Color.indigo).font(.body.weight(.medium))
+                    List {
+                        Section {
+                            ForEach(model.decks) { deck in
+                                NavigationLink {
+                                    ReviewerView(model: model, deck: deck)
+                                } label: {
+                                    Label(deck.name, systemImage: "rectangle.stack.fill")
+                                }
+                            }
+                        } footer: {
+                            Text(model.lastSyncedText)
                         }
                     }
-                    .listStyle(.plain).refreshable { await model.sync() }
+                    .refreshable { await model.sync() }
                 }
             }
-            .navigationTitle("My decks")
+            .navigationTitle("My Decks")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { menuIsOpen = true } label: { Image(systemName: "line.3.horizontal") }
-                        .accessibilityLabel("Open menu")
+                    Menu {
+                        Button("Log Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                            model.logout()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Deck actions")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { Task { await model.sync() } } label: {
-                        if model.isSyncing { ProgressView() } else { Image(systemName: "arrow.triangle.2.circlepath") }
+                        if model.isSyncing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }.disabled(model.isSyncing).accessibilityLabel("Sync with AnkiWeb")
                 }
             }
@@ -58,8 +56,6 @@ struct ContentView: View {
                 if let error = model.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red)
                         .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
-                } else {
-                    Text(model.lastSyncedText).font(.footnote).foregroundStyle(.secondary).padding(.vertical, 10)
                 }
             }
         }
@@ -67,21 +63,8 @@ struct ContentView: View {
 
     private var signInScreen: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Image(systemName: "rectangle.stack.fill")
-                        .font(.system(size: 32, weight: .semibold))
-                        .foregroundStyle(.indigo)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Your decks,\neverywhere.")
-                            .font(.title.bold())
-                        Text("Sign in to AnkiWeb to bring your collection into Manki.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    VStack(spacing: 12) {
+            Form {
+                Section("AnkiWeb") {
                         TextField("AnkiWeb email", text: $model.username)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.emailAddress)
@@ -89,58 +72,34 @@ struct ContentView: View {
                             .autocorrectionDisabled()
                         SecureField("Password", text: $model.password)
                             .textContentType(.password)
-                    }
-                    .textFieldStyle(.roundedBorder)
+                }
 
-                    Button { Task { await model.signIn() } } label: {
-                        HStack { Spacer(); if model.isSyncing { ProgressView().tint(.white) } else { Text("Sign in and sync") }; Spacer() }
-                            .fontWeight(.semibold)
-                            .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canSignIn || model.isSyncing)
+                Section {
+                    Button("Sign In and Sync") { Task { await model.signIn() } }
+                        .disabled(!model.canSignIn || model.isSyncing)
+                }
 
+                if model.isSyncing {
+                    Section {
+                        HStack {
+                            ProgressView()
+                            Text("Syncing your collection…")
+                        }
+                    }
+                }
+
+                Section {
                     if let error = model.errorMessage {
                         Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red)
                     }
                     Text("Your credentials are stored only in your iPhone Keychain. Manki uses Anki’s official sync engine to connect to AnkiWeb.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .padding(.top, 4)
                 }
-                .frame(maxWidth: 440, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
             }
             .navigationTitle("Manki")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
         }
-    }
-
-    private var sideMenu: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Image(systemName: "rectangle.stack.fill").font(.title).foregroundStyle(.indigo)
-                Text("Manki").font(.title2.bold())
-                Text(model.username).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-            }.padding(24)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("DECKS").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.top, 20)
-                    ForEach(model.decks) { deck in
-                        Button { menuIsOpen = false } label: {
-                            Label(deck.name, systemImage: "rectangle.stack").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.vertical, 11)
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
-            Divider()
-            Button(role: .destructive) { menuIsOpen = false; model.logout() } label: {
-                Label("Log out", systemImage: "rectangle.portrait.and.arrow.right").frame(maxWidth: .infinity, alignment: .leading).padding(24)
-            }
-        }.frame(width: 286).frame(maxHeight: .infinity).background(.background).shadow(color: .black.opacity(0.2), radius: 12, x: 5)
     }
 }
 
