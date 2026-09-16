@@ -1,11 +1,8 @@
 name: iOS UI screenshots
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-  workflow_dispatch:
+  issue_comment:
+    types: [created]
 
 permissions:
   actions: read
@@ -13,6 +10,11 @@ permissions:
 
 jobs:
   screenshots:
+    # This expensive job is intentionally opt-in. Add `/run-ios-tests` as a
+    # standalone comment to a pull request to run it for that PR's merge ref.
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/run-ios-tests'
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -23,7 +25,23 @@ jobs:
       UNIT_RESULT_BUNDLE: TestResults/MankiUnitTests.xcresult
 
     steps:
-      - uses: actions/checkout@v7
+      # GitHub models conversation comments on both issues and pull requests as
+      # `issue_comment` events. Resolve the linked pull-request resource rather
+      # than treating the event's issue object as pull-request metadata.
+      - name: Resolve pull request
+        id: pull-request
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const response = await github.request(
+              `GET ${context.payload.issue.pull_request.url}`,
+            );
+            core.setOutput('merge-ref', `refs/pull/${response.data.number}/merge`);
+
+      - name: Check out pull request merge commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.pull-request.outputs.merge-ref }}
 
       - name: Restore MankiAnkiRust XCFramework cache
         id: rust-framework-cache
@@ -36,7 +54,7 @@ jobs:
       # by a PR cannot be restored by main (or by another PR), even when its
       # key is identical. Use the content-addressed artifact as a cross-ref
       # fallback while retaining the faster cache path where GitHub permits it.
-      - name: Find reusable MankiAnkiRust XCFramework artifact
+      - name: Download reusable MankiAnkiRust XCFramework artifact
         if: steps.rust-framework-cache.outputs.cache-hit != 'true'
         id: rust-framework-artifact
         uses: actions/github-script@v8
@@ -51,22 +69,28 @@ jobs:
               per_page: 100,
             });
             const artifact = artifacts
-              .filter(candidate => !candidate.expired && candidate.workflow_run?.id)
+              .filter(candidate => !candidate.expired)
               .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))[0];
             core.info(artifact
-              ? `Reusing artifact ${artifact.id} from workflow run ${artifact.workflow_run.id}`
+              ? `Reusing artifact ${artifact.id}`
               : `No reusable artifact named ${process.env.ARTIFACT_NAME} was found`);
-            core.setOutput('artifact-id', artifact?.id ?? '');
-            core.setOutput('run-id', artifact?.workflow_run?.id ?? '');
+            if (!artifact) return;
 
-      - name: Download reusable MankiAnkiRust XCFramework artifact
-        if: steps.rust-framework-cache.outputs.cache-hit != 'true' && steps.rust-framework-artifact.outputs.run-id != ''
-        uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.rust-framework-artifact.outputs.artifact-id }}
-          path: Frameworks/MankiAnkiRust.xcframework
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.rust-framework-artifact.outputs.run-id }}
+            // Downloading by artifact ID avoids cache ref scoping and does not
+            // depend on actions/download-artifact finding the originating run.
+            const archive = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
+            });
+            const fs = require('fs');
+            fs.writeFileSync('/tmp/manki-anki-rust.zip', Buffer.from(archive.data));
+            await exec.exec('mkdir', ['-p', 'Frameworks/MankiAnkiRust.xcframework']);
+            await exec.exec('ditto', [
+              '-x', '-k', '/tmp/manki-anki-rust.zip',
+              'Frameworks/MankiAnkiRust.xcframework',
+            ]);
 
       - name: Check for a restored MankiAnkiRust XCFramework
         run: |
