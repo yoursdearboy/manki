@@ -50,7 +50,9 @@ GitHub-hosted macOS worker only when requested. Add a comment containing exactly
 `/run-ios-tests` to a pull request; the workflow checks out that pull request's
 merge commit and publishes the screenshots, test results, XCFramework, and IPA
 as workflow artifacts. Ordinary pushes and pull-request updates do not start
-the expensive macOS job.
+the expensive macOS job. GitHub delivers ordinary pull-request conversation
+comments through its `issue_comment` event; the workflow follows that event's
+linked pull-request API resource before selecting the ref to test.
 
 ### Download the framework from CI
 

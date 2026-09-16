@@ -25,10 +25,23 @@ jobs:
       UNIT_RESULT_BUNDLE: TestResults/MankiUnitTests.xcresult
 
     steps:
+      # GitHub models conversation comments on both issues and pull requests as
+      # `issue_comment` events. Resolve the linked pull-request resource rather
+      # than treating the event's issue object as pull-request metadata.
+      - name: Resolve pull request
+        id: pull-request
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const response = await github.request(
+              `GET ${context.payload.issue.pull_request.url}`,
+            );
+            core.setOutput('merge-ref', `refs/pull/${response.data.number}/merge`);
+
       - name: Check out pull request merge commit
         uses: actions/checkout@v7
         with:
-          ref: refs/pull/${{ github.event.issue.number }}/merge
+          ref: ${{ steps.pull-request.outputs.merge-ref }}
 
       - name: Restore MankiAnkiRust XCFramework cache
         id: rust-framework-cache
