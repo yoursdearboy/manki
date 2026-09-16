@@ -39,8 +39,8 @@ Open `Manki.xcodeproj` after the framework has been built. The initial screen st
 ### Download the framework from CI
 
 Successful **iOS UI screenshots** workflow runs publish a
-`MankiAnkiRust-xcframework` artifact. To avoid compiling Anki locally, download
-and extract that artifact so the resulting directory is at
+`MankiAnkiRust-xcframework-<source hash>` artifact. To avoid compiling Anki
+locally, download and extract that artifact so the resulting directory is at
 `Frameworks/MankiAnkiRust.xcframework`, then open `Manki.xcodeproj` and build as
 usual. The workflow also caches this exact framework based on the bridge
 sources, lockfile, and framework build scripts, so unchanged CI runs skip the

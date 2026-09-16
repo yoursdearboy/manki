@@ -76,10 +76,15 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { MankiWordmark(compact: true) }
                 ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Button("Log out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { model.logout() }
-                    } label: { Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(MankiPalette.ink) }
-                    .accessibilityLabel("Account options")
+                    NavigationLink {
+                        SettingsView(model: model)
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.title3)
+                            .foregroundStyle(MankiPalette.ink)
+                    }
+                    .accessibilityLabel("Settings")
+                    .accessibilityHint("Opens application settings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { Task { await model.sync() } } label: {
@@ -158,6 +163,79 @@ struct ContentView: View {
 
     private func deckAccent(for index: Int) -> Color {
         [MankiPalette.sky, MankiPalette.violet, MankiPalette.coral, Color(red: 0.15, green: 0.70, blue: 0.48)][index % 4]
+    }
+}
+
+private struct SettingsView: View {
+    @ObservedObject var model: RSLibViewModel
+    @State private var isConfirmingLogout = false
+
+    var body: some View {
+        ZStack {
+            MankiPalette.mist.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Manage Manki and your account.")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(MankiPalette.softInk)
+
+                    SettingsSection(title: "ACCOUNT") {
+                        Button(role: .destructive) {
+                            isConfirmingLogout = true
+                        } label: {
+                            HStack(spacing: 15) {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    .font(.headline.weight(.bold))
+                                    .frame(width: 26)
+                                Text("Log out")
+                                    .font(.system(.body, design: .rounded, weight: .bold))
+                                Spacer()
+                            }
+                            .foregroundStyle(MankiPalette.reviewAgain)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Log out of Manki")
+                        .accessibilityHint("Asks for confirmation before clearing your AnkiWeb session")
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 30)
+            }
+        }
+        .navigationTitle("settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Log out of Manki?",
+            isPresented: $isConfirmingLogout,
+            titleVisibility: .visible
+        ) {
+            Button("Log out", role: .destructive) { model.logout() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your saved AnkiWeb credentials and local session will be cleared.")
+        }
+    }
+}
+
+/// A reusable visual container for groups of global settings as the screen grows.
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).fieldLabel().padding(.leading, 4)
+            content
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(MankiPalette.ink.opacity(0.10), lineWidth: 1.5)
+                }
+        }
     }
 }
 
