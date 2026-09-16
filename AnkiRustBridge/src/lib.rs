@@ -55,6 +55,100 @@ const RENDER_EXISTING_CARD: u32 = 6;
 const SERVICE_SCHEDULER: u32 = 13;
 const SERVICE_CARD_RENDERING: u32 = 27;
 
+/// Version of the stable C ABI declared in `manki_anki_rust.h`.
+#[no_mangle]
+pub extern "C" fn manki_anki_abi_version() -> u32 {
+    1
+}
+
+/// Borrowed bytes passed across the C ABI.
+#[repr(C)]
+pub struct MankiAnkiBytes {
+    data: *const u8,
+    len: usize,
+}
+
+/// Owned bytes returned across the C ABI.
+#[repr(C)]
+pub struct MankiAnkiOwnedBytes {
+    data: *mut u8,
+    len: usize,
+}
+
+/// Creates a backend through the stable, typed ABI.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_backend_open(
+    init: MankiAnkiBytes,
+    out_backend: *mut *mut Backend,
+) -> c_int {
+    if out_backend.is_null() || (init.data.is_null() && init.len != 0) {
+        return INVALID_ARGUMENT;
+    }
+    unsafe { *out_backend = ptr::null_mut() };
+
+    let init_bytes = if init.len == 0 {
+        anki_proto::backend::BackendInit::default().encode_to_vec()
+    } else {
+        unsafe { slice::from_raw_parts(init.data, init.len) }.to_vec()
+    };
+    match init_backend(&init_bytes) {
+        Ok(backend) => {
+            unsafe { *out_backend = Box::into_raw(Box::new(backend)) };
+            OK
+        }
+        Err(_) => INITIALIZATION_ERROR,
+    }
+}
+
+/// Dispatches any backend method without imposing feature-specific policy.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_backend_run(
+    backend: *mut Backend,
+    service: u32,
+    method: u32,
+    request: MankiAnkiBytes,
+    out_response: *mut MankiAnkiOwnedBytes,
+) -> c_int {
+    if backend.is_null() || out_response.is_null() || (request.data.is_null() && request.len != 0) {
+        return INVALID_ARGUMENT;
+    }
+    unsafe {
+        (*out_response).data = ptr::null_mut();
+        (*out_response).len = 0;
+    }
+    let input = if request.len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(request.data, request.len) }
+    };
+    let result = unsafe { &*backend }.run_service_method(service, method, input);
+    let (status, bytes) = match result {
+        Ok(bytes) => (OK, bytes),
+        Err(bytes) => (BACKEND_ERROR, bytes),
+    };
+    let mut output = MankiAnkiOwnedBytes {
+        data: ptr::null_mut(),
+        len: 0,
+    };
+    unsafe { set_output(bytes, &mut output.data, &mut output.len) };
+    unsafe { *out_response = output };
+    status
+}
+
+/// Releases a response returned by the stable ABI.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_bytes_free(bytes: MankiAnkiOwnedBytes) {
+    unsafe { manki_anki_free_response(bytes.data, bytes.len) };
+}
+
+/// Releases a backend returned by the stable ABI.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_backend_close(backend: *mut Backend) {
+    if !backend.is_null() {
+        let _ = unsafe { Box::from_raw(backend) };
+    }
+}
+
 /// Initializes an Anki backend from a serialized `BackendInit` protobuf.
 #[no_mangle]
 pub unsafe extern "C" fn manki_anki_open_backend(
@@ -62,28 +156,24 @@ pub unsafe extern "C" fn manki_anki_open_backend(
     init_len: usize,
     out_backend: *mut i64,
 ) -> c_int {
-    if out_backend.is_null() || (init_data.is_null() && init_len != 0) {
+    if out_backend.is_null() {
         return INVALID_ARGUMENT;
     }
-
-    let init_bytes = if init_len == 0 {
-        anki_proto::backend::BackendInit::default().encode_to_vec()
-    } else {
-        // SAFETY: the caller guarantees a valid buffer of init_len bytes.
-        unsafe { slice::from_raw_parts(init_data, init_len) }.to_vec()
+    unsafe { *out_backend = 0 };
+    let mut backend = ptr::null_mut();
+    let status = unsafe {
+        manki_anki_backend_open(
+            MankiAnkiBytes {
+                data: init_data,
+                len: init_len,
+            },
+            &mut backend,
+        )
     };
-
-    match init_backend(&init_bytes) {
-        Ok(backend) => {
-            // A Backend is immutable at this layer; rslib handles collection
-            // access behind its own synchronization primitives.
-            let handle = Box::into_raw(Box::new(backend)) as i64;
-            // SAFETY: checked non-null above.
-            unsafe { *out_backend = handle };
-            OK
-        }
-        Err(_) => INITIALIZATION_ERROR,
+    if status == OK {
+        unsafe { *out_backend = backend as i64 };
     }
+    status
 }
 
 /// Executes a protobuf RPC through Anki's backend service dispatcher.
@@ -97,40 +187,30 @@ pub unsafe extern "C" fn manki_anki_run_method(
     out_data: *mut *mut u8,
     out_len: *mut usize,
 ) -> c_int {
-    if backend == 0
-        || out_data.is_null()
-        || out_len.is_null()
-        || (input_data.is_null() && input_len != 0)
-    {
+    if out_data.is_null() || out_len.is_null() {
         return INVALID_ARGUMENT;
     }
-
-    // Make failure behavior deterministic for the caller.
-    unsafe {
-        *out_data = ptr::null_mut();
-        *out_len = 0;
-    }
-
-    // SAFETY: the handle was produced by manki_anki_open_backend() and has
-    // not been closed while this call is in flight.
-    let backend = unsafe { &*(backend as *const Backend) };
-    let input = if input_len == 0 {
-        &[]
-    } else {
-        // SAFETY: validated by the C caller as documented in the header.
-        unsafe { slice::from_raw_parts(input_data, input_len) }
+    let mut response = MankiAnkiOwnedBytes {
+        data: ptr::null_mut(),
+        len: 0,
     };
-
-    match backend.run_service_method(service, method, input) {
-        Ok(response) => {
-            unsafe { set_output(response, out_data, out_len) };
-            OK
-        }
-        Err(error) => {
-            unsafe { set_output(error, out_data, out_len) };
-            BACKEND_ERROR
-        }
+    let status = unsafe {
+        manki_anki_backend_run(
+            backend as *mut Backend,
+            service,
+            method,
+            MankiAnkiBytes {
+                data: input_data,
+                len: input_len,
+            },
+            &mut response,
+        )
+    };
+    unsafe {
+        *out_data = response.data;
+        *out_len = response.len;
     }
+    status
 }
 
 /// Frees a response buffer handed to C by `manki_anki_run_method`.
@@ -145,10 +225,7 @@ pub unsafe extern "C" fn manki_anki_free_response(data: *mut u8, len: usize) {
 /// Releases the Anki backend instance.
 #[no_mangle]
 pub unsafe extern "C" fn manki_anki_close_backend(backend: i64) {
-    if backend != 0 {
-        // SAFETY: ownership is transferred back exactly once by the caller.
-        let _ = unsafe { Box::from_raw(backend as *mut Backend) };
-    }
+    unsafe { manki_anki_backend_close(backend as *mut Backend) };
 }
 
 /// Syncs a Manki-owned local collection with AnkiWeb and returns decks as JSON.

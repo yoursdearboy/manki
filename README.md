@@ -13,7 +13,13 @@ SwiftUI
   → Anki rslib
 ```
 
-`AnkiRustBridge` exposes exactly four operations: create a backend, dispatch a protobuf service request, free the returned response buffer, and close the backend.
+`AnkiRustBridge` exposes a versioned, application-independent ABI with four
+core operations: create a backend, dispatch a protobuf service request, free
+the returned response buffer, and close the backend. Its opaque handle and
+byte-slice types are usable directly from Swift through the XCFramework's
+Clang module. Existing feature-specific entry points remain available as
+compatibility helpers, but new application features should use the generic
+dispatcher instead of adding framework symbols.
 
 This is intentionally low level. Adding a feature means generating the matching Anki protobuf types and invoking the documented backend service; it does not mean reproducing sync endpoints or collection mutations in Swift.
 
@@ -110,7 +116,22 @@ path if you need an initial download without existing local changes.
 
 ## API contract
 
-The C header is at `AnkiRustBridge/include/manki_anki_rust.h`. Successful calls return raw response protobuf bytes. A status of `1` returns an encoded Anki `BackendError` protobuf, also owned by the caller until `manki_anki_free_response()` is called.
+The C header is at `AnkiRustBridge/include/manki_anki_rust.h`. Check
+`manki_anki_abi_version()` against `MANKI_ANKI_ABI_VERSION`, create one or more
+opaque `MankiAnkiBackend` instances, and call `manki_anki_backend_run()` with
+the service and method identifiers from Anki's generated backend interface.
+Successful calls return raw response protobuf bytes. A status of
+`MANKI_ANKI_STATUS_BACKEND_ERROR` returns an encoded Anki `BackendError`
+protobuf. In either case, release the owned response exactly once with
+`manki_anki_bytes_free()`.
+
+Because the request and response contract is generic, adding a screen or
+composing existing collection, scheduler, rendering, and sync RPCs in Swift
+does not require a new Rust export or an XCFramework rebuild. Rebuild the
+artifact only when updating rslib or the bridge ABI itself. The legacy
+`manki_anki_open_backend()`/`manki_anki_run_method()` pair and the original
+feature helpers remain exported so existing app and CLI binaries continue to
+work with the reusable framework.
 
 The Swift wrapper serializes calls with a lock: an rslib backend handle must not be closed while a request is in progress. It does not interpret or modify the request and response payloads.
 
