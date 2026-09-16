@@ -3,9 +3,12 @@ import SwiftUI
 private enum MankiPalette {
     static let sky = Color(red: 0.00, green: 0.64, blue: 0.87)
     static let deepSky = Color(red: 0.00, green: 0.45, blue: 0.70)
-    static let ink = Color(red: 0.10, green: 0.15, blue: 0.20)
-    static let mist = Color(red: 0.94, green: 0.98, blue: 1.00)
-    static let softInk = Color(red: 0.40, green: 0.45, blue: 0.49)
+    static let ink = Color.primary
+    static let softInk = Color.secondary
+    static let canvas = Color(uiColor: .systemBackground)
+    static let surface = Color(uiColor: .secondarySystemBackground)
+    static let mist = Color(uiColor: .systemGroupedBackground)
+    static let field = Color(uiColor: .tertiarySystemFill)
     static let coral = Color(red: 1.00, green: 0.49, blue: 0.34)
     static let violet = Color(red: 0.48, green: 0.37, blue: 0.88)
     static let reviewAgain = Color(red: 0.86, green: 0.28, blue: 0.28)
@@ -47,7 +50,7 @@ struct ContentView: View {
     private var decksScreen: some View {
         NavigationStack {
             ZStack {
-                Color.white.ignoresSafeArea()
+                MankiPalette.canvas.ignoresSafeArea()
                 if model.isSyncing && model.decks.isEmpty {
                     ProgressView("Building your study space…").tint(MankiPalette.sky)
                 } else if model.decks.isEmpty {
@@ -172,7 +175,7 @@ struct ContentView: View {
                     .font(.footnote).foregroundStyle(MankiPalette.softInk).multilineTextAlignment(.center)
                     .padding(.horizontal, 38).padding(.top, 24).padding(.bottom, 32)
             }
-        }.background(Color.white)
+        }.background(MankiPalette.canvas)
     }
 
     private func deckAccent(for index: Int) -> Color {
@@ -244,7 +247,7 @@ private struct SettingsSection<Content: View>: View {
             content
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(MankiPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .stroke(MankiPalette.ink.opacity(0.10), lineWidth: 1.5)
@@ -268,7 +271,7 @@ private struct DeckRow: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(accent)
-        }.padding(14).background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }.padding(14).background(MankiPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(MankiPalette.ink.opacity(0.10), lineWidth: 1.5) }
     }
 }
@@ -353,7 +356,7 @@ private struct ReviewerView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .background(MankiPalette.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay { RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(MankiPalette.sky.opacity(0.18), lineWidth: 1.5) }
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
             if showingAnswer {
@@ -460,7 +463,7 @@ private extension View {
     func fieldLabel() -> some View { font(.caption2.weight(.heavy)).foregroundStyle(MankiPalette.softInk).tracking(0.9) }
     func emailField() -> some View {
         self.textInputAutocapitalization(.never).autocorrectionDisabled().padding(.horizontal, 16).frame(height: 54)
-            .background(MankiPalette.mist, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(MankiPalette.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(MankiPalette.sky.opacity(0.20), lineWidth: 1.5) }
     }
 }
