@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -30,26 +31,64 @@ jobs:
           path: Frameworks/MankiAnkiRust.xcframework
           key: ${{ runner.os }}-${{ runner.arch }}-xcode-16.4-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
 
-      - name: Install build dependencies
+      # Pull-request caches are scoped to refs/pull/*/merge, so a cache written
+      # by a PR cannot be restored by main (or by another PR), even when its
+      # key is identical. Use the content-addressed artifact as a cross-ref
+      # fallback while retaining the faster cache path where GitHub permits it.
+      - name: Find reusable MankiAnkiRust XCFramework artifact
         if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        id: rust-framework-artifact
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: process.env.ARTIFACT_NAME,
+              per_page: 100,
+            });
+            const artifact = artifacts.find(candidate => !candidate.expired);
+            core.setOutput('run-id', artifact?.workflow_run?.id ?? '');
+
+      - name: Download reusable MankiAnkiRust XCFramework artifact
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true' && steps.rust-framework-artifact.outputs.run-id != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          path: Frameworks/MankiAnkiRust.xcframework
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.rust-framework-artifact.outputs.run-id }}
+
+      - name: Check for a restored MankiAnkiRust XCFramework
+        run: |
+          if test -f Frameworks/MankiAnkiRust.xcframework/Info.plist; then
+            echo "RUST_FRAMEWORK_RESTORED=true" >> "$GITHUB_ENV"
+          else
+            echo "RUST_FRAMEWORK_RESTORED=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install build dependencies
+        if: env.RUST_FRAMEWORK_RESTORED != 'true'
         run: brew install protobuf
 
       - name: Install Rust and iOS targets
-        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        if: env.RUST_FRAMEWORK_RESTORED != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
       - name: Prepare Anki rslib sources
-        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        if: env.RUST_FRAMEWORK_RESTORED != 'true'
         run: scripts/bootstrap-anki-rslib.sh
 
       - name: Build MankiAnkiRust XCFramework
-        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        if: env.RUST_FRAMEWORK_RESTORED != 'true'
         run: scripts/build-anki-xcframework.sh
 
       - name: Save MankiAnkiRust XCFramework cache
-        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        if: env.RUST_FRAMEWORK_RESTORED != 'true'
         uses: actions/cache/save@v6
         with:
           path: Frameworks/MankiAnkiRust.xcframework
@@ -58,7 +97,7 @@ jobs:
       - name: Upload reusable MankiAnkiRust XCFramework
         uses: actions/upload-artifact@v7
         with:
-          name: MankiAnkiRust-xcframework
+          name: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
           path: Frameworks/MankiAnkiRust.xcframework/
           if-no-files-found: error
 
