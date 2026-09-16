@@ -36,6 +36,22 @@ The bootstrap script checks out Anki revision `e64c6b1aee3e8d668fb8bbe084beada8e
 
 Open `Manki.xcodeproj` after the framework has been built. The initial screen starts an rslib backend and confirms that the native engine can initialize.
 
+## Run tests
+
+The test suite is split by platform. Agents on a Linux host run the fast,
+platform-independent tests with:
+
+```sh
+./scripts/test-linux.sh
+```
+
+The Xcode unit tests, UI screenshot tests, and unsigned iPhone build run on the
+GitHub-hosted macOS worker only when requested. Add a comment containing exactly
+`/run-ios-tests` to a pull request; the workflow checks out that pull request's
+merge commit and publishes the screenshots, test results, XCFramework, and IPA
+as workflow artifacts. Ordinary pushes and pull-request updates do not start
+the expensive macOS job.
+
 ### Download the framework from CI
 
 Successful **iOS UI screenshots** workflow runs publish a
