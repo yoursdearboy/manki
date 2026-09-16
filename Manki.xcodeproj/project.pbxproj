@@ -13,7 +13,12 @@
 		A00000000000000000000004 /* AnkiRSLibBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* AnkiRSLibBackend.swift */; };
 		A00000000000000000000006 /* Frameworks/MankiAnkiRust.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* Frameworks/MankiAnkiRust.xcframework */; };
 		A00000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017 /* Assets.xcassets */; };
+		B00000000000000000000001 /* RSLibViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000011 /* RSLibViewModelTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B00000000000000000000002 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000050 /* Project object */; proxyType = 1; remoteGlobalIDString = A00000000000000000000030; remoteInfo = Manki; };
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000000010 /* Manki.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Manki.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -23,6 +28,8 @@
 		A00000000000000000000014 /* AnkiRSLibBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiRSLibBackend.swift; sourceTree = "<group>"; };
 		A00000000000000000000016 /* Frameworks/MankiAnkiRust.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/MankiAnkiRust.xcframework; sourceTree = "<group>"; };
 		A00000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B00000000000000000000010 /* MankiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = MankiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B00000000000000000000011 /* RSLibViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSLibViewModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,6 +48,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000010 /* Manki.app */,
+				B00000000000000000000010 /* MankiTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -49,6 +57,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000022 /* Manki */,
+				B00000000000000000000020 /* MankiTests */,
 				A00000000000000000000016 /* Frameworks/MankiAnkiRust.xcframework */,
 				A00000000000000000000020 /* Products */,
 			);
@@ -64,6 +73,12 @@
 				A00000000000000000000017 /* Assets.xcassets */,
 			);
 			path = Manki;
+			sourceTree = "<group>";
+		};
+		B00000000000000000000020 /* MankiTests */ = {
+			isa = PBXGroup;
+			children = (B00000000000000000000011 /* RSLibViewModelTests.swift */,);
+			path = MankiTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -85,6 +100,17 @@
 			productName = Manki;
 			productReference = A00000000000000000000010 /* Manki.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B00000000000000000000030 /* MankiTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B00000000000000000000040 /* Build configuration list for PBXNativeTarget "MankiTests" */;
+			buildPhases = (B00000000000000000000031 /* Sources */, B00000000000000000000032 /* Frameworks */,);
+			buildRules = ();
+			dependencies = (B00000000000000000000003 /* PBXTargetDependency */,);
+			name = MankiTests;
+			productName = MankiTests;
+			productReference = B00000000000000000000010 /* MankiTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -115,6 +141,7 @@
 			projectRoot = "";
 			targets = (
 				A00000000000000000000030 /* Manki */,
+				B00000000000000000000030 /* MankiTests */,
 			);
 		};
 /* End PBXProject section */
@@ -130,6 +157,10 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		B00000000000000000000032 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A00000000000000000000031 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -142,7 +173,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B00000000000000000000031 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B00000000000000000000001 /* RSLibViewModelTests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B00000000000000000000003 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A00000000000000000000030 /* Manki */; targetProxy = B00000000000000000000002; };
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A00000000000000000000052 /* Debug */ = {
@@ -218,6 +254,8 @@
 			};
 			name = Release;
 		};
+		B00000000000000000000054 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.rxdx.manki.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Manki.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Manki"; }; name = Debug; };
+		B00000000000000000000055 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.rxdx.manki.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Manki.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Manki"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -239,6 +277,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		B00000000000000000000040 /* Build configuration list for PBXNativeTarget "MankiTests" */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000054 /* Debug */, B00000000000000000000055 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = A00000000000000000000050 /* Project object */;

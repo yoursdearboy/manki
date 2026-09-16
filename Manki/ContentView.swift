@@ -16,20 +16,23 @@ private enum MankiPalette {
 
 struct ContentView: View {
     @StateObject private var model = RSLibViewModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group { if model.isAuthenticated { decksScreen } else { signInScreen } }
             .tint(MankiPalette.sky)
             .task { await model.restoreSession() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await model.syncWhenActive() }
+            }
     }
 
     private var decksScreen: some View {
         NavigationStack {
             ZStack {
                 Color.white.ignoresSafeArea()
-                if model.isSyncing && model.decks.isEmpty {
-                    ProgressView("Building your study space…").tint(MankiPalette.sky)
-                } else if model.decks.isEmpty {
+                if model.decks.isEmpty {
                     emptyDecks
                 } else {
                     ScrollView {
@@ -66,17 +69,29 @@ struct ContentView: View {
                     .accessibilityLabel("Account options")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await model.sync() } } label: {
-                        Image(systemName: model.isSyncing ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
-                            .font(.title3).foregroundStyle(MankiPalette.sky)
-                    }.disabled(model.isSyncing).accessibilityLabel("Sync with AnkiWeb")
+                    HStack(spacing: 8) {
+                        if model.isSyncing {
+                            ProgressView().controlSize(.small)
+                                .accessibilityLabel("Syncing with AnkiWeb")
+                        }
+                        Button { Task { await model.sync() } } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath.circle")
+                                .font(.title3).foregroundStyle(MankiPalette.sky)
+                        }.disabled(model.isSyncing).accessibilityLabel("Sync with AnkiWeb")
+                    }
                 }
             }
             .overlay(alignment: .bottom) {
-                if let error = model.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12)
-                        .background(.red, in: Capsule()).padding(.bottom, 12)
+                if let error = model.syncErrorMessage ?? model.errorMessage {
+                    HStack(spacing: 10) {
+                        Label(error, systemImage: "exclamationmark.triangle.fill").lineLimit(2)
+                        if model.syncErrorMessage != nil {
+                            Button("Retry") { Task { await model.sync() } }
+                                .fontWeight(.bold).disabled(model.isSyncing)
+                        }
+                    }
+                    .font(.footnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12)
+                    .background(.red, in: Capsule()).padding(.horizontal, 12).padding(.bottom, 12)
                 }
             }
         }
@@ -131,7 +146,9 @@ struct ContentView: View {
                         HStack(spacing: 10) { ProgressView().tint(MankiPalette.sky); Text("Bringing your decks home…") }
                             .font(.footnote.weight(.semibold)).foregroundStyle(MankiPalette.softInk)
                     }
-                    if let error = model.errorMessage { Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red) }
+                    if let error = model.syncErrorMessage ?? model.errorMessage {
+                        Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red)
+                    }
                 }.padding(.horizontal, 24).padding(.top, 32)
                 Text("Manki stores your login only in your iPhone Keychain and uses Anki’s official sync engine.")
                     .font(.footnote).foregroundStyle(MankiPalette.softInk).multilineTextAlignment(.center)

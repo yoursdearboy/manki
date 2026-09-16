@@ -17,7 +17,10 @@ use std::{
 use anki::backend::{init_backend, Backend};
 use anki_proto::{
     backend::BackendError,
-    card_rendering::{rendered_template_node::Value as RenderedNodeValue, RenderCardResponse, RenderExistingCardRequest},
+    card_rendering::{
+        rendered_template_node::Value as RenderedNodeValue, RenderCardResponse,
+        RenderExistingCardRequest,
+    },
     collection::{CloseCollectionRequest, OpenCollectionRequest},
     decks::{DeckId, DeckNames, DeckTreeNode, DeckTreeRequest, GetDeckNamesRequest},
     scheduler::{card_answer::Rating, CardAnswer, GetQueuedCardsRequest, QueuedCards},
@@ -197,6 +200,40 @@ pub unsafe extern "C" fn manki_anki_fetch_decks(
     }
 }
 
+/// Reads the last successfully synced deck list without making a network call.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_load_decks(
+    collection_path: *const c_char,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    if collection_path.is_null() || out_data.is_null() || out_len.is_null() {
+        return INVALID_ARGUMENT;
+    }
+    unsafe {
+        *out_data = ptr::null_mut();
+        *out_len = 0;
+    }
+
+    let result = (|| -> Result<Vec<u8>, String> {
+        let collection_path = unsafe { c_string(collection_path) }?;
+        if !Path::new(&collection_path).exists() {
+            return Ok(b"[]".to_vec());
+        }
+        with_open_collection(&collection_path, decks_from_open_collection)
+    })();
+    match result {
+        Ok(data) => {
+            unsafe { set_output(data, out_data, out_len) };
+            OK
+        }
+        Err(error) => {
+            unsafe { set_output(error.into_bytes(), out_data, out_len) };
+            FETCH_ERROR
+        }
+    }
+}
+
 /// Retrieves the first due card from a selected deck, rendered by rslib.
 #[no_mangle]
 pub unsafe extern "C" fn manki_anki_get_next_card(
@@ -211,12 +248,19 @@ pub unsafe extern "C" fn manki_anki_get_next_card(
         let Some(card) = queued.cards.into_iter().next() else {
             return Ok(b"null".to_vec());
         };
-        let card_id = card.card.ok_or("scheduler returned a card without an id")?.id;
+        let card_id = card
+            .card
+            .ok_or("scheduler returned a card without an id")?
+            .id;
         let rendered: RenderCardResponse = call(
             backend,
             SERVICE_CARD_RENDERING,
             RENDER_EXISTING_CARD,
-            RenderExistingCardRequest { card_id, browser: false, partial_render: false },
+            RenderExistingCardRequest {
+                card_id,
+                browser: false,
+                partial_render: false,
+            },
         )?;
         serde_json::to_vec(&json!({
             "id": card_id,
@@ -242,16 +286,21 @@ pub unsafe extern "C" fn manki_anki_answer_card(
         let rating = Rating::try_from(rating).map_err(|_| "invalid card rating")?;
         select_deck(backend, deck_id)?;
         let queued = queued_cards(backend)?;
-        let queued_card = queued.cards.into_iter()
+        let queued_card = queued
+            .cards
+            .into_iter()
             .find(|item| item.card.as_ref().is_some_and(|card| card.id == card_id))
             .ok_or("the card is no longer due; refresh the deck and try again")?;
-        let states = queued_card.states.ok_or("scheduler returned no scheduling states")?;
+        let states = queued_card
+            .states
+            .ok_or("scheduler returned no scheduling states")?;
         let next_state = match rating {
             Rating::Again => states.again,
             Rating::Hard => states.hard,
             Rating::Good => states.good,
             Rating::Easy => states.easy,
-        }.ok_or("scheduler returned an incomplete scheduling state")?;
+        }
+        .ok_or("scheduler returned an incomplete scheduling state")?;
         let _ = call::<_, anki_proto::collection::OpChanges>(
             backend,
             SERVICE_SCHEDULER,
@@ -286,7 +335,8 @@ fn fetch_decks(
     let parent = collection_path
         .parent()
         .ok_or("collection path has no parent directory")?;
-    fs::create_dir_all(parent).map_err(|error| format!("could not create collection directory: {error}"))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("could not create collection directory: {error}"))?;
 
     let backend = init_backend(&anki_proto::backend::BackendInit::default().encode_to_vec())
         .map_err(|error| format!("could not initialize Anki rslib: {error}"))?;
@@ -295,7 +345,12 @@ fn fetch_decks(
         media_folder_path: media_folder(&collection_path)?.display().to_string(),
         media_db_path: media_database(&collection_path)?.display().to_string(),
     };
-    call::<_, anki_proto::generic::Empty>(&backend, SERVICE_COLLECTION, OPEN_COLLECTION, open_request)?;
+    call::<_, anki_proto::generic::Empty>(
+        &backend,
+        SERVICE_COLLECTION,
+        OPEN_COLLECTION,
+        open_request,
+    )?;
 
     let result = fetch_decks_from_open_collection(&backend, endpoint, username, password);
     let close_result = call::<_, anki_proto::generic::Empty>(
@@ -344,8 +399,11 @@ fn with_open_collection(
     operation: impl FnOnce(&Backend) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<u8>, String> {
     let collection_path = PathBuf::from(collection_path);
-    let parent = collection_path.parent().ok_or("collection path has no parent directory")?;
-    fs::create_dir_all(parent).map_err(|error| format!("could not create collection directory: {error}"))?;
+    let parent = collection_path
+        .parent()
+        .ok_or("collection path has no parent directory")?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("could not create collection directory: {error}"))?;
     let backend = init_backend(&anki_proto::backend::BackendInit::default().encode_to_vec())
         .map_err(|error| format!("could not initialize Anki rslib: {error}"))?;
     call::<_, anki_proto::generic::Empty>(
@@ -385,16 +443,22 @@ fn queued_cards(backend: &Backend) -> Result<QueuedCards, String> {
         backend,
         SERVICE_SCHEDULER,
         GET_QUEUED_CARDS,
-        GetQueuedCardsRequest { fetch_limit: 1, intraday_learning_only: false },
+        GetQueuedCardsRequest {
+            fetch_limit: 1,
+            intraday_learning_only: false,
+        },
     )
 }
 
 fn rendered_text(nodes: Vec<anki_proto::card_rendering::RenderedTemplateNode>) -> String {
-    nodes.into_iter().filter_map(|node| match node.value {
-        Some(RenderedNodeValue::Text(text)) => Some(text),
-        Some(RenderedNodeValue::Replacement(replacement)) => Some(replacement.current_text),
-        None => None,
-    }).collect()
+    nodes
+        .into_iter()
+        .filter_map(|node| match node.value {
+            Some(RenderedNodeValue::Text(text)) => Some(text),
+            Some(RenderedNodeValue::Replacement(replacement)) => Some(replacement.current_text),
+            None => None,
+        })
+        .collect()
 }
 
 fn now_millis() -> i64 {
@@ -457,10 +521,19 @@ fn fetch_decks_from_open_collection(
                 },
             )?;
         }
-        ChangesRequired::FullUpload => return Err("the server is empty; refusing a full upload while fetching decks".into()),
-        ChangesRequired::FullSync => return Err("Anki requires a full-sync direction choice; refusing to overwrite either collection".into()),
+        ChangesRequired::FullUpload => {
+            return Err("the server is empty; refusing a full upload while fetching decks".into())
+        }
+        ChangesRequired::FullSync => return Err(
+            "Anki requires a full-sync direction choice; refusing to overwrite either collection"
+                .into(),
+        ),
     }
 
+    decks_from_open_collection(backend)
+}
+
+fn decks_from_open_collection(backend: &Backend) -> Result<Vec<u8>, String> {
     let deck_names: DeckNames = call(
         backend,
         SERVICE_DECKS,
@@ -506,7 +579,10 @@ fn collect_deck_counts(
     counts_by_deck: &mut std::collections::HashMap<i64, (u32, u32, u32)>,
 ) {
     if node.deck_id != 0 {
-        counts_by_deck.insert(node.deck_id, (node.new_count, node.learn_count, node.review_count));
+        counts_by_deck.insert(
+            node.deck_id,
+            (node.new_count, node.learn_count, node.review_count),
+        );
     }
     for child in &node.children {
         collect_deck_counts(child, counts_by_deck);

@@ -54,21 +54,46 @@ final class RSLibViewModel: ObservableObject {
     @Published private(set) var decks: [Deck] = []
     @Published private(set) var isSyncing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var syncErrorMessage: String?
     @Published private(set) var lastSynced: Date?
     @Published private(set) var isAuthenticated = false
     @Published private(set) var reviewCard: ReviewCard?
     @Published private(set) var isReviewLoading = false
 
     private let credentials = KeychainCredentials()
+    private let loadCachedDecks: () throws -> [Deck]
+    private let fetchDecks: (String, String) throws -> [Deck]
+    private var hasRestoredSession = false
+
+    init(
+        decks: [Deck] = [],
+        isAuthenticated: Bool = false,
+        loadCachedDecks: @escaping () throws -> [Deck] = AnkiRSLibBackend.loadCachedDecks,
+        fetchDecks: @escaping (String, String) throws -> [Deck] = AnkiRSLibBackend.fetchDecks
+    ) {
+        self.decks = decks
+        self.isAuthenticated = isAuthenticated
+        self.loadCachedDecks = loadCachedDecks
+        self.fetchDecks = fetchDecks
+    }
 
     var canSignIn: Bool { !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty }
     var lastSyncedText: String { lastSynced.map { "Synced \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Pull to refresh your collection" }
 
     func restoreSession() async {
+        guard !hasRestoredSession else { return }
+        hasRestoredSession = true
         guard let saved = credentials.read() else { return }
         username = saved.username
         password = saved.password
         isAuthenticated = true
+        await loadCache()
+        await sync()
+    }
+
+    /// Called for foreground transitions after initial session restoration.
+    func syncWhenActive() async {
+        guard hasRestoredSession, isAuthenticated else { return }
         await sync()
     }
 
@@ -76,7 +101,7 @@ final class RSLibViewModel: ObservableObject {
         guard canSignIn else { return }
         isAuthenticated = true
         await sync(saveCredentialsOnSuccess: true)
-        if errorMessage != nil { isAuthenticated = false }
+        if syncErrorMessage != nil { isAuthenticated = false }
     }
 
     func sync() async { await sync(saveCredentialsOnSuccess: false) }
@@ -87,6 +112,7 @@ final class RSLibViewModel: ObservableObject {
         password = ""
         decks = []
         errorMessage = nil
+        syncErrorMessage = nil
         lastSynced = nil
         isAuthenticated = false
         reviewCard = nil
@@ -121,22 +147,41 @@ final class RSLibViewModel: ObservableObject {
         }
     }
 
+    private func loadCache() async {
+        do {
+            let cached = try await Task.detached(priority: .userInitiated) { [loadCachedDecks] in
+                try loadCachedDecks()
+            }.value
+            decks = sorted(cached)
+        } catch {
+            // A cache read failure should be retryable in the same way as a
+            // network failure, while leaving any already displayed data alone.
+            syncErrorMessage = error.localizedDescription
+        }
+    }
+
     private func sync(saveCredentialsOnSuccess: Bool) async {
+        guard !isSyncing else { return }
         isSyncing = true
         errorMessage = nil
+        syncErrorMessage = nil
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = password
         do {
-            let fetched = try await Task.detached(priority: .userInitiated) {
-                try AnkiRSLibBackend.fetchDecks(username: username, password: password)
+            let fetched = try await Task.detached(priority: .userInitiated) { [fetchDecks] in
+                try fetchDecks(username, password)
             }.value
-            decks = fetched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            decks = sorted(fetched)
             lastSynced = .now
             if saveCredentialsOnSuccess { try credentials.save(username: username, password: password) }
         } catch {
-            errorMessage = error.localizedDescription
+            syncErrorMessage = error.localizedDescription
         }
         isSyncing = false
+    }
+
+    private func sorted(_ decks: [Deck]) -> [Deck] {
+        decks.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 }
 
