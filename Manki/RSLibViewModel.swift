@@ -95,8 +95,8 @@ final class RSLibViewModel: ObservableObject {
         badgeController = AppIconBadgeController(setter: badgeSetter)
 
         guard let fixture, fixture != .signIn else { return }
-        isAuthenticated = true
-        decks = Self.fixtureDecks
+        self.isAuthenticated = true
+        self.decks = Self.fixtureDecks
         lastSynced = Date(timeIntervalSince1970: 1_700_000_000)
         if fixture == .cachedDecksSyncing { isSyncing = true }
         if fixture == .syncError { syncErrorMessage = "You appear to be offline." }
