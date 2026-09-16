@@ -23,19 +23,44 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Restore MankiAnkiRust XCFramework cache
+        id: rust-framework-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: Frameworks/MankiAnkiRust.xcframework
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-16.4-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+
       - name: Install build dependencies
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
         run: brew install protobuf
 
       - name: Install Rust and iOS targets
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
       - name: Prepare Anki rslib sources
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
         run: scripts/bootstrap-anki-rslib.sh
 
       - name: Build MankiAnkiRust XCFramework
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
         run: scripts/build-anki-xcframework.sh
+
+      - name: Save MankiAnkiRust XCFramework cache
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: Frameworks/MankiAnkiRust.xcframework
+          key: ${{ steps.rust-framework-cache.outputs.cache-primary-key }}
+
+      - name: Upload reusable MankiAnkiRust XCFramework
+        uses: actions/upload-artifact@v7
+        with:
+          name: MankiAnkiRust-xcframework
+          path: Frameworks/MankiAnkiRust.xcframework/
+          if-no-files-found: error
 
       - name: Boot fixed simulator
         run: |

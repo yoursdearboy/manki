@@ -36,6 +36,24 @@ The bootstrap script checks out Anki revision `e64c6b1aee3e8d668fb8bbe084beada8e
 
 Open `Manki.xcodeproj` after the framework has been built. The initial screen starts an rslib backend and confirms that the native engine can initialize.
 
+### Download the framework from CI
+
+Successful **iOS UI screenshots** workflow runs publish a
+`MankiAnkiRust-xcframework` artifact. To avoid compiling Anki locally, download
+and extract that artifact so the resulting directory is at
+`Frameworks/MankiAnkiRust.xcframework`, then open `Manki.xcodeproj` and build as
+usual. The workflow also caches this exact framework based on the bridge
+sources, lockfile, and framework build scripts, so unchanged CI runs skip the
+expensive Rust compilation.
+
+The XCFramework is a build dependency, not an installable iPhone application.
+GitHub-hosted runners do not have this project's Apple distribution certificate
+or provisioning profile, so the workflow cannot produce an IPA that a physical
+iPhone will accept. Installing on an iPhone still requires Xcode to sign the app
+with a development team, or a separate CI signing setup backed by protected
+certificate and provisioning-profile secrets. The screenshot workflow's app
+build is for the iOS Simulator and cannot be installed on a physical device.
+
 ## Fetch decks on macOS
 
 Build the same XCFramework plus a small Swift command-line wrapper:
