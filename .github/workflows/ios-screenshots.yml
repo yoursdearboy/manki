@@ -159,6 +159,15 @@ jobs:
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID"
 
+      - name: Run unit tests
+        run: |
+          xcodebuild test \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:MankiTests
+
       - name: Run UI screenshot tests
         run: |
           rm -rf "$RESULT_BUNDLE"
@@ -168,6 +177,7 @@ jobs:
             -scheme Manki \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:MankiUITests \
             -resultBundlePath "$RESULT_BUNDLE"
 
       - name: Extract screenshot attachments
