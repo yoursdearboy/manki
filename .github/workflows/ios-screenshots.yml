@@ -47,7 +47,9 @@ jobs:
           print(matches[0]["udid"])
           ')
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl shutdown "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl erase "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID"
           xcrun simctl bootstatus "$DEVICE_ID" -b
 
       - name: Build application
@@ -56,8 +58,7 @@ jobs:
             -project Manki.xcodeproj \
             -scheme Manki \
             -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            CODE_SIGNING_ALLOWED=NO
+            -destination "platform=iOS Simulator,id=$DEVICE_ID"
 
       - name: Run UI screenshot tests
         run: |
@@ -68,8 +69,7 @@ jobs:
             -scheme Manki \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -resultBundlePath "$RESULT_BUNDLE" \
-            CODE_SIGNING_ALLOWED=NO
+            -resultBundlePath "$RESULT_BUNDLE"
 
       - name: Extract screenshot attachments
         if: always()
