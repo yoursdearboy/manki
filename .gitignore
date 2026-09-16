@@ -2,3 +2,10 @@
 Vendor/
 Frameworks/
 AnkiRustBridge/target/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.anki2
+*.anki21
+*.anki2-shm
+*.anki2-wal

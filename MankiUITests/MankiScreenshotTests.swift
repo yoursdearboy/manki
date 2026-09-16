@@ -12,6 +12,20 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testCachedDecksRemainVisibleWhileSyncing() throws {
+        capture(fixture: "cached-decks-syncing") { application in
+            application.staticTexts["your decks"]
+        }
+    }
+
+    @MainActor
+    func testRetryableBackgroundSyncError() throws {
+        capture(fixture: "sync-error") { application in
+            application.buttons["Sync failed. Retry sync"]
+        }
+    }
+
+    @MainActor
     func testSettings() throws {
         captureSettings(confirmingLogout: false)
     }

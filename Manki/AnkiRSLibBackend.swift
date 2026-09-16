@@ -44,6 +44,21 @@ final class AnkiRSLibBackend {
         return try JSONDecoder().decode([Deck].self, from: data)
     }
 
+    static func loadCachedDecks() throws -> [Deck] {
+        let collection = try collectionPath()
+        var output: UnsafeMutablePointer<UInt8>?
+        var outputLength = 0
+        let status = collection.withCString {
+            manki_anki_load_decks($0, &output, &outputLength)
+        }
+        defer { if let output { manki_anki_free_response(output, outputLength) } }
+        let data = output.map { Data(bytes: $0, count: outputLength) } ?? Data()
+        guard status == 0 else {
+            throw AnkiRSLibError.collectionFailed(String(data: data, encoding: .utf8) ?? "Anki could not load scheduler counts.")
+        }
+        return try JSONDecoder().decode([Deck].self, from: data)
+    }
+
     static func nextCard(in deck: Deck) throws -> ReviewCard? {
         let collection = try collectionPath()
         let data = try reviewCall { output, outputLength in
@@ -122,6 +137,7 @@ enum AnkiRSLibError: LocalizedError {
     case backend(Data)
     case syncFailed(String)
     case reviewFailed(String)
+    case collectionFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -134,6 +150,8 @@ enum AnkiRSLibError: LocalizedError {
         case let .syncFailed(message):
             return message
         case let .reviewFailed(message):
+            return message
+        case let .collectionFailed(message):
             return message
         }
     }

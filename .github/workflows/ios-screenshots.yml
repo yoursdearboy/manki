@@ -49,14 +49,20 @@ jobs:
               name: process.env.ARTIFACT_NAME,
               per_page: 100,
             });
-            const artifact = artifacts.find(candidate => !candidate.expired);
+            const artifact = artifacts
+              .filter(candidate => !candidate.expired && candidate.workflow_run?.id)
+              .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))[0];
+            core.info(artifact
+              ? `Reusing artifact ${artifact.id} from workflow run ${artifact.workflow_run.id}`
+              : `No reusable artifact named ${process.env.ARTIFACT_NAME} was found`);
+            core.setOutput('artifact-id', artifact?.id ?? '');
             core.setOutput('run-id', artifact?.workflow_run?.id ?? '');
 
       - name: Download reusable MankiAnkiRust XCFramework artifact
         if: steps.rust-framework-cache.outputs.cache-hit != 'true' && steps.rust-framework-artifact.outputs.run-id != ''
         uses: actions/download-artifact@v7
         with:
-          name: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          artifact-ids: ${{ steps.rust-framework-artifact.outputs.artifact-id }}
           path: Frameworks/MankiAnkiRust.xcframework
           github-token: ${{ github.token }}
           run-id: ${{ steps.rust-framework-artifact.outputs.run-id }}
@@ -95,6 +101,7 @@ jobs:
           key: ${{ steps.rust-framework-cache.outputs.cache-primary-key }}
 
       - name: Upload reusable MankiAnkiRust XCFramework
+        if: env.RUST_FRAMEWORK_RESTORED != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
