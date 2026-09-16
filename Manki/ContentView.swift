@@ -15,10 +15,26 @@ private enum MankiPalette {
 }
 
 struct ContentView: View {
-    @StateObject private var model = RSLibViewModel()
+    @StateObject private var model: RSLibViewModel
+    private let fixture: UITestFixture?
+
+    init() {
+        let fixture = UITestFixture.current
+        self.fixture = fixture
+        _model = StateObject(wrappedValue: RSLibViewModel(fixture: fixture))
+    }
 
     var body: some View {
-        Group { if model.isAuthenticated { decksScreen } else { signInScreen } }
+        Group {
+            switch fixture {
+            case .reviewQuestion:
+                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0]) }
+            case .reviewAnswer:
+                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], initiallyShowingAnswer: true) }
+            default:
+                if model.isAuthenticated { decksScreen } else { signInScreen }
+            }
+        }
             .tint(MankiPalette.sky)
             .task { await model.restoreSession() }
     }
@@ -200,8 +216,14 @@ private struct DeckSchedulerLegend: View {
 private struct ReviewerView: View {
     @ObservedObject var model: RSLibViewModel
     let deck: Deck
-    @State private var showingAnswer = false
+    @State private var showingAnswer: Bool
     @State private var shownAt = Date.now
+
+    init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
+        self.model = model
+        self.deck = deck
+        _showingAnswer = State(initialValue: initiallyShowingAnswer)
+    }
 
     var body: some View {
         ZStack {
@@ -221,7 +243,7 @@ private struct ReviewerView: View {
                 }
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
-            .task(id: deck.id) { showingAnswer = false; shownAt = .now; await model.loadNextCard(in: deck) }
+            .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
     }
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {

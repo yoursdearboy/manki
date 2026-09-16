@@ -1,0 +1,146 @@
+name: iOS UI screenshots
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      SIMULATOR_NAME: iPhone 16 Pro
+      SIMULATOR_OS: "18.5"
+      RESULT_BUNDLE: TestResults/MankiScreenshots.xcresult
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Restore MankiAnkiRust XCFramework cache
+        id: rust-framework-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: Frameworks/MankiAnkiRust.xcframework
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-16.4-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+
+      - name: Install build dependencies
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        run: brew install protobuf
+
+      - name: Install Rust and iOS targets
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Prepare Anki rslib sources
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        run: scripts/bootstrap-anki-rslib.sh
+
+      - name: Build MankiAnkiRust XCFramework
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        run: scripts/build-anki-xcframework.sh
+
+      - name: Save MankiAnkiRust XCFramework cache
+        if: steps.rust-framework-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: Frameworks/MankiAnkiRust.xcframework
+          key: ${{ steps.rust-framework-cache.outputs.cache-primary-key }}
+
+      - name: Upload reusable MankiAnkiRust XCFramework
+        uses: actions/upload-artifact@v7
+        with:
+          name: MankiAnkiRust-xcframework
+          path: Frameworks/MankiAnkiRust.xcframework/
+          if-no-files-found: error
+
+      - name: Build unsigned iPhone application
+        run: |
+          rm -rf Build/UnsignedDevice Build/UnsignedPayload Manki-unsigned.ipa
+          xcodebuild build \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath Build/UnsignedDevice \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+          mkdir -p Build/UnsignedPayload/Payload
+          cp -R Build/UnsignedDevice/Build/Products/Release-iphoneos/Manki.app \
+            Build/UnsignedPayload/Payload/
+          (cd Build/UnsignedPayload && ditto -c -k --sequesterRsrc --keepParent Payload ../../Manki-unsigned.ipa)
+          unzip -Z1 Manki-unsigned.ipa > Build/unsigned-ipa-contents.txt
+          grep -Fxq 'Payload/Manki.app/Manki' Build/unsigned-ipa-contents.txt
+
+      - name: Upload unsigned iPhone IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: Manki-unsigned-iphone
+          path: Manki-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Boot fixed simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, os, sys
+          devices = json.load(sys.stdin)["devices"]
+          runtime = "com.apple.CoreSimulator.SimRuntime.iOS-" + os.environ["SIMULATOR_OS"].replace(".", "-")
+          matches = [device for device in devices.get(runtime, []) if device["name"] == os.environ["SIMULATOR_NAME"]]
+          if not matches:
+              raise SystemExit("fixed simulator not installed: {} (iOS {})".format(os.environ["SIMULATOR_NAME"], os.environ["SIMULATOR_OS"]))
+          print(matches[0]["udid"])
+          ')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl shutdown "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl erase "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID"
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
+      - name: Build application
+        run: |
+          xcodebuild build \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID"
+
+      - name: Run UI screenshot tests
+        run: |
+          rm -rf "$RESULT_BUNDLE"
+          mkdir -p "$(dirname "$RESULT_BUNDLE")"
+          xcodebuild test \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -resultBundlePath "$RESULT_BUNDLE"
+
+      - name: Extract screenshot attachments
+        if: always()
+        continue-on-error: true
+        run: scripts/extract-xcresult-screenshots.py "$RESULT_BUNDLE" screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: manki-ios-screenshots
+          path: screenshots/
+          if-no-files-found: warn
+
+      - name: Upload complete test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: manki-ios-xcresult
+          path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn
