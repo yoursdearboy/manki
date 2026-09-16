@@ -3,6 +3,19 @@ import XCTest
 
 @MainActor
 final class RSLibViewModelTests: XCTestCase {
+    func testCardSwipeMapsFourDirectionsToRatings() {
+        XCTAssertEqual(CardSwipe.rating(for: CGSize(width: 0, height: 100)), .again)
+        XCTAssertEqual(CardSwipe.rating(for: CGSize(width: -100, height: 0)), .hard)
+        XCTAssertEqual(CardSwipe.rating(for: CGSize(width: 100, height: 0)), .good)
+        XCTAssertEqual(CardSwipe.rating(for: CGSize(width: 0, height: -100)), .easy)
+    }
+
+    func testCardSwipeRequiresThresholdAndUsesDominantAxis() {
+        XCTAssertNil(CardSwipe.rating(for: CGSize(width: 79, height: 20)))
+        XCTAssertEqual(CardSwipe.rating(for: CGSize(width: -100, height: 90)), .hard)
+        XCTAssertEqual(CardSwipe.rating(for: CGSize(width: 90, height: 100)), .again)
+    }
+
     func testCachedDecksRemainVisibleWhileSyncing() async throws {
         let cached = try deck(id: 1, name: "Cached", due: 2)
         let gate = DispatchSemaphore(value: 0)

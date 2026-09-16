@@ -364,6 +364,8 @@ private struct ReviewerView: View {
     let deck: Deck
     @State private var showingAnswer: Bool
     @State private var shownAt = Date.now
+    @State private var cardOffset = CGSize.zero
+    @State private var isSubmittingSwipe = false
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
         self.model = model
@@ -394,22 +396,38 @@ private struct ReviewerView: View {
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
         VStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        CardText(html: card.question)
-                        if showingAnswer {
-                            Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
-                            Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
-                            CardText(html: card.answer.answerBody)
+            ZStack {
+                reviewCardBacking(rotation: -3, xOffset: -5, yOffset: 7)
+                reviewCardBacking(rotation: 2, xOffset: 5, yOffset: 3)
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            CardText(html: card.question)
+                            if showingAnswer {
+                                Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
+                                Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+                                CardText(html: card.answer.answerBody)
+                            }
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-            }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(MankiPalette.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(MankiPalette.sky.opacity(0.18), lineWidth: 1.5) }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(swipeRating.map(color(for:)) ?? MankiPalette.sky.opacity(0.18), lineWidth: swipeRating == nil ? 1.5 : 5)
+                }
+                .shadow(color: swipeRating.map { color(for: $0).opacity(0.48) } ?? .clear, radius: 20)
+                .offset(cardOffset)
+                .rotationEffect(.degrees(Double(cardOffset.width / 22)))
+                .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .gesture(swipeGesture(for: card))
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
+                .accessibilityHint(showingAnswer ? "Swipe down for Again, left for Hard, right for Good, or up for Easy" : "Tap to show the answer")
+            }
             if showingAnswer {
                 HStack(spacing: 8) {
                     ForEach(CardRating.allCases) { rating in
@@ -422,6 +440,59 @@ private struct ReviewerView: View {
         }
     }
 
+    private var swipeRating: CardRating? {
+        guard showingAnswer else { return nil }
+        return CardSwipe.rating(for: cardOffset)
+    }
+
+    private func reviewCardBacking(rotation: Double, xOffset: CGFloat, yOffset: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .fill(MankiPalette.surface)
+            .overlay { RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(MankiPalette.sky.opacity(0.12), lineWidth: 1.5) }
+            .rotationEffect(.degrees(rotation))
+            .offset(x: xOffset, y: yOffset)
+            .padding(.horizontal, 5)
+            .allowsHitTesting(false)
+    }
+
+    private func swipeGesture(for card: ReviewCard) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard showingAnswer, !isSubmittingSwipe else { return }
+                cardOffset = value.translation
+            }
+            .onEnded { value in
+                guard showingAnswer, !isSubmittingSwipe else { return }
+                cardOffset = value.predictedEndTranslation
+                guard let rating = CardSwipe.rating(for: value.translation) else {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) { cardOffset = .zero }
+                    return
+                }
+                submit(card, rating: rating)
+            }
+    }
+
+    private func submit(_ card: ReviewCard, rating: CardRating) {
+        isSubmittingSwipe = true
+        let distance: CGFloat = 900
+        let destination: CGSize
+        switch rating {
+        case .again: destination = CGSize(width: cardOffset.width, height: distance)
+        case .hard: destination = CGSize(width: -distance, height: cardOffset.height)
+        case .good: destination = CGSize(width: distance, height: cardOffset.height)
+        case .easy: destination = CGSize(width: cardOffset.width, height: -distance)
+        }
+        withAnimation(.easeIn(duration: 0.22)) { cardOffset = destination }
+        Task {
+            try? await Task.sleep(for: .milliseconds(220))
+            await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt))
+            showingAnswer = false
+            shownAt = .now
+            cardOffset = .zero
+            isSubmittingSwipe = false
+        }
+    }
+
     private func color(for rating: CardRating) -> Color {
         switch rating {
         case .again: MankiPalette.reviewAgain
@@ -429,6 +500,18 @@ private struct ReviewerView: View {
         case .good: MankiPalette.reviewGood
         case .easy: MankiPalette.reviewEasy
         }
+    }
+}
+
+enum CardSwipe {
+    static let threshold: CGFloat = 80
+
+    static func rating(for translation: CGSize) -> CardRating? {
+        guard max(abs(translation.width), abs(translation.height)) >= threshold else { return nil }
+        if abs(translation.width) > abs(translation.height) {
+            return translation.width < 0 ? .hard : .good
+        }
+        return translation.height < 0 ? .easy : .again
     }
 }
 
