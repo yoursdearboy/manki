@@ -10,7 +10,7 @@
 - `./scripts/bootstrap-anki-rslib.sh` checks out the pinned Anki source into the ignored `Vendor/` directory.
 - `./scripts/build-anki-xcframework.sh` builds device, simulator, and macOS slices at `Frameworks/MankiAnkiRust.xcframework`; it requires Rust, Xcode, and `protoc`.
 - `./scripts/build-macos-cli.sh` builds `.build/manki-anki-cli`, reusing a current framework when possible.
-- Open `Manki.xcodeproj` in Xcode 15+ for app development. Comment exactly `/run-ios-tests` on a pull request to trigger the opt-in macOS CI workflow.
+- Open `Manki.xcodeproj` in Xcode 15+ for app development. Run the opt-in macOS CI workflow manually from the GitHub Actions page when iOS validation is needed.
 
 ## Coding Style & Naming Conventions
 

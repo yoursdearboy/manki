@@ -1,8 +1,7 @@
 name: iOS UI screenshots
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -10,11 +9,6 @@ permissions:
 
 jobs:
   screenshots:
-    # This expensive job is intentionally opt-in. Add `/run-ios-tests` as a
-    # standalone comment to a pull request to run it for that PR's merge ref.
-    if: >-
-      github.event.issue.pull_request &&
-      github.event.comment.body == '/run-ios-tests'
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -25,23 +19,8 @@ jobs:
       UNIT_RESULT_BUNDLE: TestResults/MankiUnitTests.xcresult
 
     steps:
-      # GitHub models conversation comments on both issues and pull requests as
-      # `issue_comment` events. Resolve the linked pull-request resource rather
-      # than treating the event's issue object as pull-request metadata.
-      - name: Resolve pull request
-        id: pull-request
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const response = await github.request(
-              `GET ${context.payload.issue.pull_request.url}`,
-            );
-            core.setOutput('merge-ref', `refs/pull/${response.data.number}/merge`);
-
-      - name: Check out pull request merge commit
+      - name: Check out selected ref
         uses: actions/checkout@v7
-        with:
-          ref: ${{ steps.pull-request.outputs.merge-ref }}
 
       - name: Restore MankiAnkiRust XCFramework cache
         id: rust-framework-cache
