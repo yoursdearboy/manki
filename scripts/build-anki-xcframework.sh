@@ -29,7 +29,7 @@ export DESCRIPTORS_BIN="$bridge_dir/target/anki_descriptors.bin"
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
 mkdir -p "$bridge_dir/target"
 
-for target in aarch64-apple-ios aarch64-apple-ios-sim; do
+for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
   # Homebrew's Rust installation does not include non-host standard libraries
   # and cannot install them.  Rustup can provision them; alternatively, allow
   # a custom toolchain where they were installed ahead of time.
@@ -93,9 +93,18 @@ MODULEMAP
 PLIST
 }
 
+make_simulator_framework() {
+  local framework="$stage_dir/ios-simulator/MankiAnkiRust.framework"
+  make_framework aarch64-apple-ios-sim ios-simulator iPhoneSimulator
+  lipo -create \
+    "$bridge_dir/target/aarch64-apple-ios-sim/release/libmanki_anki_rust.a" \
+    "$bridge_dir/target/x86_64-apple-ios/release/libmanki_anki_rust.a" \
+    -output "$framework/MankiAnkiRust"
+}
+
 rm -rf "$stage_dir" "$output_dir"
 make_framework aarch64-apple-ios ios-device iPhoneOS
-make_framework aarch64-apple-ios-sim ios-simulator iPhoneSimulator
+make_simulator_framework
 make_framework native macos MacOSX
 
 mkdir -p "${output_dir:h}"

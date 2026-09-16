@@ -1,0 +1,93 @@
+name: iOS UI screenshots
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      SIMULATOR_NAME: iPhone 16 Pro
+      SIMULATOR_OS: "18.5"
+      RESULT_BUNDLE: TestResults/MankiScreenshots.xcresult
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install protobuf
+
+      - name: Install Rust and iOS targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Prepare Anki rslib sources
+        run: scripts/bootstrap-anki-rslib.sh
+
+      - name: Build MankiAnkiRust XCFramework
+        run: scripts/build-anki-xcframework.sh
+
+      - name: Boot fixed simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, os, sys
+          devices = json.load(sys.stdin)["devices"]
+          runtime = "com.apple.CoreSimulator.SimRuntime.iOS-" + os.environ["SIMULATOR_OS"].replace(".", "-")
+          matches = [device for device in devices.get(runtime, []) if device["name"] == os.environ["SIMULATOR_NAME"]]
+          if not matches:
+              raise SystemExit("fixed simulator not installed: {} (iOS {})".format(os.environ["SIMULATOR_NAME"], os.environ["SIMULATOR_OS"]))
+          print(matches[0]["udid"])
+          ')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
+      - name: Build application
+        run: |
+          xcodebuild build \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run UI screenshot tests
+        run: |
+          rm -rf "$RESULT_BUNDLE"
+          mkdir -p "$(dirname "$RESULT_BUNDLE")"
+          xcodebuild test \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Extract screenshot attachments
+        if: always()
+        continue-on-error: true
+        run: scripts/extract-xcresult-screenshots.py "$RESULT_BUNDLE" screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manki-ios-screenshots
+          path: screenshots/
+          if-no-files-found: warn
+
+      - name: Upload complete test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manki-ios-xcresult
+          path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn

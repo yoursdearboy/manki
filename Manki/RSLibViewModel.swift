@@ -15,6 +15,14 @@ struct Deck: Identifiable, Decodable, Hashable {
         case dueCount = "due"
     }
 
+    init(id: Int64, name: String, newCount: Int, learnCount: Int, dueCount: Int) {
+        self.id = id
+        self.name = name
+        self.newCount = newCount
+        self.learnCount = learnCount
+        self.dueCount = dueCount
+    }
+
     /// Older copies of the bundled Rust framework only returned an id and
     /// name. Keep those collections usable while treating unavailable
     /// scheduler counts as zero; a rebuilt framework supplies the real counts.
@@ -60,11 +68,28 @@ final class RSLibViewModel: ObservableObject {
     @Published private(set) var isReviewLoading = false
 
     private let credentials = KeychainCredentials()
+    private let fixture: UITestFixture?
+
+    init(fixture: UITestFixture? = UITestFixture.current) {
+        self.fixture = fixture
+
+        guard let fixture, fixture != .signIn else { return }
+        isAuthenticated = true
+        decks = Self.fixtureDecks
+        lastSynced = Date(timeIntervalSince1970: 1_700_000_000)
+        if fixture == .reviewQuestion || fixture == .reviewAnswer {
+            reviewCard = Self.fixtureCard
+        }
+    }
 
     var canSignIn: Bool { !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty }
-    var lastSyncedText: String { lastSynced.map { "Synced \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Pull to refresh your collection" }
+    var lastSyncedText: String {
+        if fixture != nil { return "Synced with UI test fixtures" }
+        return lastSynced.map { "Synced \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Pull to refresh your collection"
+    }
 
     func restoreSession() async {
+        guard fixture == nil else { return }
         guard let saved = credentials.read() else { return }
         username = saved.username
         password = saved.password
@@ -93,6 +118,10 @@ final class RSLibViewModel: ObservableObject {
     }
 
     func loadNextCard(in deck: Deck) async {
+        if fixture != nil {
+            reviewCard = Self.fixtureCard
+            return
+        }
         isReviewLoading = true
         errorMessage = nil
         do {
@@ -107,6 +136,10 @@ final class RSLibViewModel: ObservableObject {
     }
 
     func answer(_ card: ReviewCard, in deck: Deck, rating: CardRating, elapsed: TimeInterval) async {
+        guard fixture == nil else {
+            reviewCard = Self.fixtureCard
+            return
+        }
         isReviewLoading = true
         errorMessage = nil
         do {
@@ -122,6 +155,7 @@ final class RSLibViewModel: ObservableObject {
     }
 
     private func sync(saveCredentialsOnSuccess: Bool) async {
+        guard fixture == nil else { return }
         isSyncing = true
         errorMessage = nil
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -137,6 +171,31 @@ final class RSLibViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isSyncing = false
+    }
+    static let fixtureDecks = [
+        Deck(id: 10, name: "Spanish Essentials", newCount: 12, learnCount: 3, dueCount: 24),
+        Deck(id: 20, name: "Human Anatomy", newCount: 5, learnCount: 0, dueCount: 18),
+        Deck(id: 30, name: "World Capitals", newCount: 0, learnCount: 2, dueCount: 7),
+    ]
+
+    static let fixtureCard = ReviewCard(
+        id: 101,
+        question: "What is the capital of Argentina?",
+        answer: "What is the capital of Argentina?<hr id=answer><b>Buenos Aires</b>"
+    )
+}
+
+enum UITestFixture: String {
+    case signIn = "sign-in"
+    case deckList = "deck-list"
+    case reviewQuestion = "review-question"
+    case reviewAnswer = "revealed-answer"
+
+    static var current: Self? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "--ui-test-fixture"),
+              arguments.indices.contains(flag + 1) else { return nil }
+        return Self(rawValue: arguments[flag + 1])
     }
 }
 
