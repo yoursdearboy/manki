@@ -17,6 +17,7 @@ private enum MankiPalette {
 struct ContentView: View {
     @StateObject private var model: RSLibViewModel
     private let fixture: UITestFixture?
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let fixture = UITestFixture.current
@@ -37,6 +38,10 @@ struct ContentView: View {
         }
             .tint(MankiPalette.sky)
             .task { await model.restoreSession() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await model.syncWhenActive() }
+            }
     }
 
     private var decksScreen: some View {
@@ -87,17 +92,26 @@ struct ContentView: View {
                     .accessibilityHint("Opens application settings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await model.sync() } } label: {
-                        Image(systemName: model.isSyncing ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
-                            .font(.title3).foregroundStyle(MankiPalette.sky)
-                    }.disabled(model.isSyncing).accessibilityLabel("Sync with AnkiWeb")
+                    HStack(spacing: 8) {
+                        if model.isSyncing {
+                            ProgressView().controlSize(.small)
+                                .accessibilityLabel("Syncing with AnkiWeb")
+                        }
+                        Button { Task { await model.sync() } } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath.circle")
+                                .font(.title3).foregroundStyle(MankiPalette.sky)
+                        }.disabled(model.isSyncing).accessibilityLabel("Sync with AnkiWeb")
+                    }
                 }
             }
             .overlay(alignment: .bottom) {
-                if let error = model.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12)
-                        .background(.red, in: Capsule()).padding(.bottom, 12)
+                if let error = model.syncErrorMessage {
+                    Button { Task { await model.sync() } } label: {
+                        Label("\(error) Tap to retry.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote.weight(.semibold)).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(.red, in: Capsule()).padding(.bottom, 12)
+                    }
+                    .accessibilityLabel("Sync failed. Retry sync")
                 }
             }
         }
@@ -211,7 +225,7 @@ private struct SettingsView: View {
             isPresented: $isConfirmingLogout,
             titleVisibility: .visible
         ) {
-            Button("Log out", role: .destructive) { model.logout() }
+            Button("Log out", role: .destructive) { Task { await model.logout() } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your saved AnkiWeb credentials and local session will be cleared.")

@@ -1,26 +1,29 @@
 import Foundation
 import Security
 
-struct Deck: Identifiable, Decodable, Hashable {
+struct Deck: Identifiable, Decodable, Hashable, BadgeCountProviding {
     let id: Int64
     let name: String
     let newCount: Int
     let learnCount: Int
     let dueCount: Int
+    let contributesToBadge: Bool
 
     private enum CodingKeys: String, CodingKey {
         case id, name
         case newCount = "new"
         case learnCount = "learn"
         case dueCount = "due"
+        case contributesToBadge
     }
 
-    init(id: Int64, name: String, newCount: Int, learnCount: Int, dueCount: Int) {
+    init(id: Int64, name: String, newCount: Int, learnCount: Int, dueCount: Int, contributesToBadge: Bool = true) {
         self.id = id
         self.name = name
         self.newCount = newCount
         self.learnCount = learnCount
         self.dueCount = dueCount
+        self.contributesToBadge = contributesToBadge
     }
 
     /// Older copies of the bundled Rust framework only returned an id and
@@ -33,6 +36,7 @@ struct Deck: Identifiable, Decodable, Hashable {
         newCount = try values.decodeIfPresent(Int.self, forKey: .newCount) ?? 0
         learnCount = try values.decodeIfPresent(Int.self, forKey: .learnCount) ?? 0
         dueCount = try values.decodeIfPresent(Int.self, forKey: .dueCount) ?? 0
+        contributesToBadge = try values.decodeIfPresent(Bool.self, forKey: .contributesToBadge) ?? true
     }
 }
 
@@ -62,6 +66,7 @@ final class RSLibViewModel: ObservableObject {
     @Published private(set) var decks: [Deck] = []
     @Published private(set) var isSyncing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var syncErrorMessage: String?
     @Published private(set) var lastSynced: Date?
     @Published private(set) var isAuthenticated = false
     @Published private(set) var reviewCard: ReviewCard?
@@ -69,14 +74,32 @@ final class RSLibViewModel: ObservableObject {
 
     private let credentials = KeychainCredentials()
     private let fixture: UITestFixture?
+    private let loadCachedDecks: () throws -> [Deck]
+    private let fetchDecks: (String, String) throws -> [Deck]
+    private let badgeController: AppIconBadgeController
+    private var hasRestoredSession = false
 
-    init(fixture: UITestFixture? = UITestFixture.current) {
+    init(
+        fixture: UITestFixture? = UITestFixture.current,
+        decks: [Deck] = [],
+        isAuthenticated: Bool = false,
+        loadCachedDecks: @escaping () throws -> [Deck] = AnkiRSLibBackend.loadCachedDecks,
+        fetchDecks: @escaping (String, String) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
+        badgeSetter: any AppIconBadgeSetting = UserNotificationBadgeSetter()
+    ) {
         self.fixture = fixture
+        self.decks = decks
+        self.isAuthenticated = isAuthenticated
+        self.loadCachedDecks = loadCachedDecks
+        self.fetchDecks = fetchDecks
+        badgeController = AppIconBadgeController(setter: badgeSetter)
 
         guard let fixture, fixture != .signIn else { return }
-        isAuthenticated = true
-        decks = Self.fixtureDecks
+        self.isAuthenticated = true
+        self.decks = Self.fixtureDecks
         lastSynced = Date(timeIntervalSince1970: 1_700_000_000)
+        if fixture == .cachedDecksSyncing { isSyncing = true }
+        if fixture == .syncError { syncErrorMessage = "You appear to be offline." }
         if fixture == .reviewQuestion || fixture == .reviewAnswer {
             reviewCard = Self.fixtureCard
         }
@@ -90,10 +113,21 @@ final class RSLibViewModel: ObservableObject {
 
     func restoreSession() async {
         guard fixture == nil else { return }
-        guard let saved = credentials.read() else { return }
+        guard !hasRestoredSession else { return }
+        hasRestoredSession = true
+        guard let saved = credentials.read() else {
+            await updateBadge()
+            return
+        }
         username = saved.username
         password = saved.password
         isAuthenticated = true
+        await loadCache()
+        await sync()
+    }
+
+    func syncWhenActive() async {
+        guard fixture == nil, hasRestoredSession, isAuthenticated else { return }
         await sync()
     }
 
@@ -101,20 +135,25 @@ final class RSLibViewModel: ObservableObject {
         guard canSignIn else { return }
         isAuthenticated = true
         await sync(saveCredentialsOnSuccess: true)
-        if errorMessage != nil { isAuthenticated = false }
+        if syncErrorMessage != nil {
+            isAuthenticated = false
+            await updateBadge()
+        }
     }
 
     func sync() async { await sync(saveCredentialsOnSuccess: false) }
 
-    func logout() {
+    func logout() async {
         credentials.delete()
         username = ""
         password = ""
         decks = []
         errorMessage = nil
+        syncErrorMessage = nil
         lastSynced = nil
         isAuthenticated = false
         reviewCard = nil
+        await updateBadge()
     }
 
     func loadNextCard(in deck: Deck) async {
@@ -147,6 +186,7 @@ final class RSLibViewModel: ObservableObject {
             try await Task.detached(priority: .userInitiated) {
                 try AnkiRSLibBackend.answer(card, in: deck, rating: rating, millisecondsTaken: milliseconds)
             }.value
+            await refreshDueCounts()
             await loadNextCard(in: deck)
         } catch {
             errorMessage = error.localizedDescription
@@ -154,23 +194,54 @@ final class RSLibViewModel: ObservableObject {
         }
     }
 
+    private func loadCache() async {
+        do {
+            let cached = try await Task.detached(priority: .userInitiated) { [loadCachedDecks] in
+                try loadCachedDecks()
+            }.value
+            decks = sorted(cached)
+            await updateBadge()
+        } catch {
+            syncErrorMessage = error.localizedDescription
+        }
+    }
+
     private func sync(saveCredentialsOnSuccess: Bool) async {
         guard fixture == nil else { return }
+        guard !isSyncing else { return }
         isSyncing = true
+        defer { isSyncing = false }
         errorMessage = nil
+        syncErrorMessage = nil
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = password
         do {
-            let fetched = try await Task.detached(priority: .userInitiated) {
-                try AnkiRSLibBackend.fetchDecks(username: username, password: password)
+            let fetched = try await Task.detached(priority: .userInitiated) { [fetchDecks] in
+                try fetchDecks(username, password)
             }.value
-            decks = fetched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            decks = sorted(fetched)
             lastSynced = .now
             if saveCredentialsOnSuccess { try credentials.save(username: username, password: password) }
+            await updateBadge()
         } catch {
-            errorMessage = error.localizedDescription
+            syncErrorMessage = error.localizedDescription
         }
-        isSyncing = false
+    }
+
+    private func sorted(_ decks: [Deck]) -> [Deck] {
+        decks.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func refreshDueCounts() async {
+        guard fixture == nil, isAuthenticated else {
+            await updateBadge()
+            return
+        }
+        await loadCache()
+    }
+
+    private func updateBadge() async {
+        await badgeController.update(decks: decks, isAuthenticated: isAuthenticated)
     }
     static let fixtureDecks = [
         Deck(id: 10, name: "Spanish Essentials", newCount: 12, learnCount: 3, dueCount: 24),
@@ -190,6 +261,8 @@ enum UITestFixture: String {
     case deckList = "deck-list"
     case reviewQuestion = "review-question"
     case reviewAnswer = "revealed-answer"
+    case cachedDecksSyncing = "cached-decks-syncing"
+    case syncError = "sync-error"
 
     static var current: Self? {
         let arguments = ProcessInfo.processInfo.arguments
