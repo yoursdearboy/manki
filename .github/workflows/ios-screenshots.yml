@@ -20,6 +20,7 @@ jobs:
       SIMULATOR_NAME: iPhone 16 Pro
       SIMULATOR_OS: "18.5"
       RESULT_BUNDLE: TestResults/MankiScreenshots.xcresult
+      UNIT_RESULT_BUNDLE: TestResults/MankiUnitTests.xcresult
 
     steps:
       - uses: actions/checkout@v7
@@ -161,12 +162,14 @@ jobs:
 
       - name: Run unit tests
         run: |
+          rm -rf "$UNIT_RESULT_BUNDLE"
           xcodebuild test \
             -project Manki.xcodeproj \
             -scheme Manki \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:MankiTests
+            -only-testing:MankiTests \
+            -resultBundlePath "$UNIT_RESULT_BUNDLE"
 
       - name: Run UI screenshot tests
         run: |
@@ -199,4 +202,12 @@ jobs:
         with:
           name: manki-ios-xcresult
           path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: manki-ios-unit-xcresult
+          path: ${{ env.UNIT_RESULT_BUNDLE }}
           if-no-files-found: warn

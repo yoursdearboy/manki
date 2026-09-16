@@ -6,13 +6,15 @@ final class RSLibViewModelTests: XCTestCase {
     func testCachedDecksRemainVisibleWhileSyncing() async throws {
         let cached = try deck(id: 1, name: "Cached", due: 2)
         let gate = DispatchSemaphore(value: 0)
+        let started = expectation(description: "background sync started")
         let model = RSLibViewModel(decks: [cached], isAuthenticated: true, loadCachedDecks: { [] }, fetchDecks: { _, _ in
+            started.fulfill()
             gate.wait()
             return []
         }, badgeSetter: NoopBadgeSetter())
 
         let sync = Task { await model.sync() }
-        await waitUntil { model.isSyncing }
+        await fulfillment(of: [started], timeout: 2)
         XCTAssertTrue(model.isSyncing)
         XCTAssertEqual(model.decks, [cached])
         gate.signal()
@@ -45,21 +47,20 @@ final class RSLibViewModelTests: XCTestCase {
     }
 
     func testRepeatedSyncDoesNotOverlap() async throws {
-        let lock = NSLock()
         let gate = DispatchSemaphore(value: 0)
-        var starts = 0
+        let started = expectation(description: "one background sync started")
+        started.assertForOverFulfill = true
         let model = RSLibViewModel(isAuthenticated: true, loadCachedDecks: { [] }, fetchDecks: { _, _ in
-            lock.lock(); starts += 1; lock.unlock()
+            started.fulfill()
             gate.wait()
             return []
         }, badgeSetter: NoopBadgeSetter())
 
         let first = Task { await model.sync() }
-        await waitUntil { model.isSyncing }
+        await fulfillment(of: [started], timeout: 2)
         let second = Task { await model.sync() }
         await second.value
-        lock.lock(); let observedStarts = starts; lock.unlock()
-        XCTAssertEqual(observedStarts, 1)
+        XCTAssertTrue(model.isSyncing)
         gate.signal()
         await first.value
     }
@@ -67,10 +68,6 @@ final class RSLibViewModelTests: XCTestCase {
     private func deck(id: Int64, name: String, new: Int = 0, learn: Int = 0, due: Int = 0) throws -> Deck {
         let data = try JSONSerialization.data(withJSONObject: ["id": id, "name": name, "new": new, "learn": learn, "due": due])
         return try JSONDecoder().decode(Deck.self, from: data)
-    }
-
-    private func waitUntil(_ condition: () -> Bool) async {
-        for _ in 0..<100 where !condition() { await Task.yield() }
     }
 
     private enum TestError: LocalizedError {
