@@ -16,6 +16,7 @@ private enum MankiPalette {
 
 struct ContentView: View {
     @StateObject private var model: RSLibViewModel
+    @StateObject private var notifications = NotificationSettings()
     private let fixture: UITestFixture?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -38,6 +39,9 @@ struct ContentView: View {
         }
             .tint(MankiPalette.sky)
             .task { await model.restoreSession() }
+            .onChange(of: model.decks, initial: true) { _, decks in
+                Task { await notifications.updateDecks(decks) }
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task { await model.syncWhenActive() }
@@ -82,7 +86,7 @@ struct ContentView: View {
                 ToolbarItem(placement: .principal) { MankiWordmark(compact: true) }
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
-                        SettingsView(model: model)
+                        SettingsView(model: model, notifications: notifications)
                     } label: {
                         Image(systemName: "gearshape.fill")
                             .font(.title3)
@@ -182,6 +186,7 @@ struct ContentView: View {
 
 private struct SettingsView: View {
     @ObservedObject var model: RSLibViewModel
+    @ObservedObject var notifications: NotificationSettings
     @State private var isConfirmingLogout = false
 
     var body: some View {
@@ -192,6 +197,52 @@ private struct SettingsView: View {
                     Text("Manage Manki and your account.")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(MankiPalette.softInk)
+
+                    SettingsSection(title: "DAILY REMINDERS") {
+                        VStack(spacing: 16) {
+                            Toggle("Study reminders", isOn: Binding(
+                                get: { notifications.isEnabled },
+                                set: { enabled in Task { await notifications.setEnabled(enabled) } }
+                            ))
+                            .font(.system(.body, design: .rounded, weight: .bold))
+
+                            if notifications.permissionDenied {
+                                Label("Notifications are disabled in Settings.", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.footnote)
+                                    .foregroundStyle(MankiPalette.reviewAgain)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            ForEach(notifications.times) { time in
+                                HStack {
+                                    DatePicker(
+                                        "Reminder time",
+                                        selection: Binding(
+                                            get: { time.date },
+                                            set: { date in Task { await notifications.updateTime(id: time.id, date: date) } }
+                                        ),
+                                        displayedComponents: .hourAndMinute
+                                    )
+                                    .labelsHidden()
+                                    Spacer()
+                                    Button(role: .destructive) {
+                                        Task { await notifications.removeTime(id: time.id) }
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                    .accessibilityLabel("Delete reminder at \(time.date.formatted(date: .omitted, time: .shortened))")
+                                }
+                            }
+
+                            Button {
+                                Task { await notifications.addTime() }
+                            } label: {
+                                Label("Add reminder", systemImage: "plus.circle.fill")
+                                    .font(.system(.body, design: .rounded, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
 
                     SettingsSection(title: "ACCOUNT") {
                         Button(role: .destructive) {

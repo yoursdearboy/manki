@@ -8,7 +8,7 @@ var targets: [Target] = [
     .target(
         name: "DueBadgeCore",
         path: "Manki",
-        exclude: ["AnkiRSLibBackend.swift", "AppIconBadgeController.swift", "Assets.xcassets", "ContentView.swift", "MankiApp.swift", "RSLibViewModel.swift"],
+        exclude: ["AnkiRSLibBackend.swift", "AppIconBadgeController.swift", "Assets.xcassets", "ContentView.swift", "MankiApp.swift", "NotificationSettings.swift", "RSLibViewModel.swift"],
         sources: ["DueBadgeCount.swift"]
     ),
     .testTarget(name: "DueBadgeCoreTests", dependencies: ["DueBadgeCore"])
