@@ -4,6 +4,78 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Stable, application-independent ABI for the Anki engine.
+ *
+ * This API intentionally deals only in opaque backend handles and serialized
+ * protobuf messages. New Anki features can therefore be composed in Swift by
+ * calling their service/method pair without adding another exported symbol or
+ * rebuilding this framework.
+ */
+#define MANKI_ANKI_ABI_VERSION 1u
+
+typedef struct MankiAnkiBackend MankiAnkiBackend;
+
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+} MankiAnkiBytes;
+
+typedef struct {
+    uint8_t *data;
+    size_t len;
+} MankiAnkiOwnedBytes;
+
+typedef enum {
+    MANKI_ANKI_STATUS_OK = 0,
+    MANKI_ANKI_STATUS_BACKEND_ERROR = 1,
+    MANKI_ANKI_STATUS_INVALID_ARGUMENT = -1,
+    MANKI_ANKI_STATUS_INITIALIZATION_ERROR = -2
+} MankiAnkiStatus;
+
+/** Returns the ABI version implemented by the loaded framework. */
+uint32_t manki_anki_abi_version(void);
+
+/**
+ * Creates an opaque backend. `init` is a serialized BackendInit protobuf; an
+ * empty slice selects rslib's defaults. The returned backend is independent
+ * of any particular collection or application feature.
+ */
+MankiAnkiStatus manki_anki_backend_open(
+    MankiAnkiBytes init,
+    MankiAnkiBackend **out_backend
+);
+
+/**
+ * Dispatches any rslib protobuf RPC. The service and method numbers come from
+ * Anki's generated backend interface. Both successful replies and serialized
+ * BackendError replies are returned in `out_response` and must be released
+ * with manki_anki_bytes_free().
+ */
+MankiAnkiStatus manki_anki_backend_run(
+    MankiAnkiBackend *backend,
+    uint32_t service,
+    uint32_t method,
+    MankiAnkiBytes request,
+    MankiAnkiOwnedBytes *out_response
+);
+
+/** Frees bytes returned by manki_anki_backend_run(). */
+void manki_anki_bytes_free(MankiAnkiOwnedBytes bytes);
+
+/** Releases an opaque backend. Passing NULL is allowed. */
+void manki_anki_backend_close(MankiAnkiBackend *backend);
+
+/*
+ * Compatibility API retained for existing Manki clients. New integrations
+ * should use the typed API above. These functions preserve source and binary
+ * compatibility with framework artifacts produced before ABI version 1.
+ */
+
 /**
  * Creates an Anki rslib backend.
  *
@@ -94,5 +166,9 @@ int manki_anki_answer_card(
     uint8_t **out_data,
     size_t *out_len
 );
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif
