@@ -16,11 +16,16 @@ private enum MankiPalette {
 
 struct ContentView: View {
     @StateObject private var model = RSLibViewModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group { if model.isAuthenticated { decksScreen } else { signInScreen } }
             .tint(MankiPalette.sky)
             .task { await model.restoreSession() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await model.refreshDueCounts() }
+            }
     }
 
     private var decksScreen: some View {
@@ -61,7 +66,9 @@ struct ContentView: View {
                 ToolbarItem(placement: .principal) { MankiWordmark(compact: true) }
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
-                        Button("Log out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { model.logout() }
+                        Button("Log out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                            Task { await model.logout() }
+                        }
                     } label: { Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(MankiPalette.ink) }
                     .accessibilityLabel("Account options")
                 }

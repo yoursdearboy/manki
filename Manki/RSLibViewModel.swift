@@ -1,18 +1,20 @@
 import Foundation
 import Security
 
-struct Deck: Identifiable, Decodable, Hashable {
+struct Deck: Identifiable, Decodable, Hashable, BadgeCountProviding {
     let id: Int64
     let name: String
     let newCount: Int
     let learnCount: Int
     let dueCount: Int
+    let contributesToBadge: Bool
 
     private enum CodingKeys: String, CodingKey {
         case id, name
         case newCount = "new"
         case learnCount = "learn"
         case dueCount = "due"
+        case contributesToBadge
     }
 
     /// Older copies of the bundled Rust framework only returned an id and
@@ -25,6 +27,7 @@ struct Deck: Identifiable, Decodable, Hashable {
         newCount = try values.decodeIfPresent(Int.self, forKey: .newCount) ?? 0
         learnCount = try values.decodeIfPresent(Int.self, forKey: .learnCount) ?? 0
         dueCount = try values.decodeIfPresent(Int.self, forKey: .dueCount) ?? 0
+        contributesToBadge = try values.decodeIfPresent(Bool.self, forKey: .contributesToBadge) ?? true
     }
 }
 
@@ -60,28 +63,42 @@ final class RSLibViewModel: ObservableObject {
     @Published private(set) var isReviewLoading = false
 
     private let credentials = KeychainCredentials()
+    private let badgeController: AppIconBadgeController
+
+    init(badgeSetter: any AppIconBadgeSetting = UserNotificationBadgeSetter()) {
+        badgeController = AppIconBadgeController(setter: badgeSetter)
+    }
 
     var canSignIn: Bool { !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty }
     var lastSyncedText: String { lastSynced.map { "Synced \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Pull to refresh your collection" }
 
     func restoreSession() async {
-        guard let saved = credentials.read() else { return }
+        guard let saved = credentials.read() else {
+            await updateBadge()
+            return
+        }
         username = saved.username
         password = saved.password
         isAuthenticated = true
         await sync()
+        if errorMessage != nil {
+            await refreshDueCounts()
+        }
     }
 
     func signIn() async {
         guard canSignIn else { return }
         isAuthenticated = true
         await sync(saveCredentialsOnSuccess: true)
-        if errorMessage != nil { isAuthenticated = false }
+        if errorMessage != nil {
+            isAuthenticated = false
+            await updateBadge()
+        }
     }
 
     func sync() async { await sync(saveCredentialsOnSuccess: false) }
 
-    func logout() {
+    func logout() async {
         credentials.delete()
         username = ""
         password = ""
@@ -90,6 +107,26 @@ final class RSLibViewModel: ObservableObject {
         lastSynced = nil
         isAuthenticated = false
         reviewCard = nil
+        await updateBadge()
+    }
+
+    /// Refreshes scheduler counts from the existing collection without a
+    /// network sync. This keeps time-sensitive counts current on foregrounding
+    /// and after a review while leaving scheduling decisions to rslib.
+    func refreshDueCounts() async {
+        guard isAuthenticated else {
+            await updateBadge()
+            return
+        }
+        do {
+            let fetched = try await Task.detached(priority: .utility) {
+                try AnkiRSLibBackend.loadDecks()
+            }.value
+            apply(fetched)
+            await updateBadge()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func loadNextCard(in deck: Deck) async {
@@ -114,6 +151,7 @@ final class RSLibViewModel: ObservableObject {
             try await Task.detached(priority: .userInitiated) {
                 try AnkiRSLibBackend.answer(card, in: deck, rating: rating, millisecondsTaken: milliseconds)
             }.value
+            await refreshDueCounts()
             await loadNextCard(in: deck)
         } catch {
             errorMessage = error.localizedDescription
@@ -130,13 +168,22 @@ final class RSLibViewModel: ObservableObject {
             let fetched = try await Task.detached(priority: .userInitiated) {
                 try AnkiRSLibBackend.fetchDecks(username: username, password: password)
             }.value
-            decks = fetched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            apply(fetched)
             lastSynced = .now
             if saveCredentialsOnSuccess { try credentials.save(username: username, password: password) }
+            await updateBadge()
         } catch {
             errorMessage = error.localizedDescription
         }
         isSyncing = false
+    }
+
+    private func apply(_ fetched: [Deck]) {
+        decks = fetched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func updateBadge() async {
+        await badgeController.update(decks: decks, isAuthenticated: isAuthenticated)
     }
 }
 

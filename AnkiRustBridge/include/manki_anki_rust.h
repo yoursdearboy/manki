@@ -59,6 +59,17 @@ int manki_anki_fetch_decks(
 );
 
 /**
+ * Lists decks and scheduler counts from an existing local collection without
+ * performing a network sync. The response has the same JSON shape as
+ * manki_anki_fetch_decks().
+ */
+int manki_anki_load_decks(
+    const char *collection_path,
+    uint8_t **out_data,
+    size_t *out_len
+);
+
+/**
  * Returns the next due card in a deck as UTF-8 JSON, including rendered
  * question and answer HTML. The result is `null` when the deck has no card
  * due now. Free the response with manki_anki_free_response().
