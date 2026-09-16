@@ -46,13 +46,25 @@ usual. The workflow also caches this exact framework based on the bridge
 sources, lockfile, and framework build scripts, so unchanged CI runs skip the
 expensive Rust compilation.
 
-The XCFramework is a build dependency, not an installable iPhone application.
-GitHub-hosted runners do not have this project's Apple distribution certificate
-or provisioning profile, so the workflow cannot produce an IPA that a physical
-iPhone will accept. Installing on an iPhone still requires Xcode to sign the app
-with a development team, or a separate CI signing setup backed by protected
-certificate and provisioning-profile secrets. The screenshot workflow's app
-build is for the iOS Simulator and cannot be installed on a physical device.
+### Download an unsigned iPhone IPA
+
+The workflow also publishes `Manki-unsigned-iphone`, containing a Release build
+named `Manki-unsigned.ipa`. Unlike the screenshot workflow's Simulator build,
+this IPA contains an `iphoneos` arm64 application and can be signed later
+without recompiling either Swift or Rust.
+
+The IPA is deliberately unsigned and cannot be installed as downloaded. Before
+installation, it must be re-signed with an Apple Development or Ad Hoc
+certificate and a provisioning profile whose application identifier matches
+`com.rxdx.manki`. A development profile must include the target iPhone's UDID.
+Tools that support IPA re-signing can consume the artifact directly; a manual
+signing flow must embed the profile, apply its entitlements with `codesign`, and
+zip the `Payload` directory back into an IPA. The signing certificate's private
+key is still required, but no local app compilation is required.
+
+CI could additionally publish a ready-to-install signed IPA only after the
+corresponding certificate and provisioning profile are configured as protected
+repository secrets. They are intentionally not stored in this repository.
 
 ## Fetch decks on macOS
 
