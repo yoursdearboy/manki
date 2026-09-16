@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		6139E278B62B15079F2D4BA0 /* AppIconBadgeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9253154316A3B2BED8886A7B /* AppIconBadgeController.swift */; };
-		6A7E650CF90ADB196D98082F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 121D870A1422B92C1FC52DAF /* Foundation.framework */; };
 		90FC038F225CD7990792F7BD /* RSLibViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3960C537EC19607ABFAFFAF9 /* RSLibViewModelTests.swift */; };
 		A00000000000000000000001 /* MankiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* MankiApp.swift */; };
 		A00000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* ContentView.swift */; };
@@ -38,7 +37,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		121D870A1422B92C1FC52DAF /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		25A75032C3C792177D286CA0 /* MankiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MankiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3960C537EC19607ABFAFFAF9 /* RSLibViewModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RSLibViewModelTests.swift; sourceTree = "<group>"; };
 		4D27E3A142163CBFC912CC26 /* DueBadgeCount.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DueBadgeCount.swift; sourceTree = "<group>"; };
@@ -59,7 +57,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6A7E650CF90ADB196D98082F /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,22 +86,6 @@
 			name = MankiTests;
 			sourceTree = "<group>";
 		};
-		959BC4B3119675C8AD5880B3 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				9BF4BF46E6CCA9068EF5F786 /* iOS */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		9BF4BF46E6CCA9068EF5F786 /* iOS */ = {
-			isa = PBXGroup;
-			children = (
-				121D870A1422B92C1FC52DAF /* Foundation.framework */,
-			);
-			name = iOS;
-			sourceTree = "<group>";
-		};
 		A00000000000000000000020 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -122,7 +103,6 @@
 				B00000000000000000000022 /* MankiUITests */,
 				A00000000000000000000016 /* MankiAnkiRust.xcframework */,
 				A00000000000000000000020 /* Products */,
-				959BC4B3119675C8AD5880B3 /* Frameworks */,
 				8EB6C1823A1AA8513902C149 /* MankiTests */,
 			);
 			sourceTree = "<group>";
@@ -409,7 +389,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.rxdx.manki;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

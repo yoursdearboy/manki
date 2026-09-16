@@ -135,7 +135,10 @@ final class RSLibViewModel: ObservableObject {
         guard canSignIn else { return }
         isAuthenticated = true
         await sync(saveCredentialsOnSuccess: true)
-        if syncErrorMessage != nil { isAuthenticated = false }
+        if syncErrorMessage != nil {
+            isAuthenticated = false
+            await updateBadge()
+        }
     }
 
     func sync() async { await sync(saveCredentialsOnSuccess: false) }
@@ -207,6 +210,7 @@ final class RSLibViewModel: ObservableObject {
         guard fixture == nil else { return }
         guard !isSyncing else { return }
         isSyncing = true
+        defer { isSyncing = false }
         errorMessage = nil
         syncErrorMessage = nil
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,7 +226,6 @@ final class RSLibViewModel: ObservableObject {
         } catch {
             syncErrorMessage = error.localizedDescription
         }
-        isSyncing = false
     }
 
     private func sorted(_ decks: [Deck]) -> [Deck] {
