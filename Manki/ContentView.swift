@@ -589,7 +589,11 @@ private struct ReviewerView: View {
                                     Button {
                                         Task { await model.setFlag(flag, on: card) }
                                     } label: {
-                                        Label(flag.title, systemImage: card.flag == flag.rawValue ? "checkmark" : "flag.fill")
+                                        HStack {
+                                            Label(flag.title, systemImage: flag.systemImage)
+                                                .foregroundStyle(color(for: flag))
+                                            if card.flag == flag.rawValue { Image(systemName: "checkmark") }
+                                        }
                                     }
                                 }
                             } label: {
@@ -611,6 +615,7 @@ private struct ReviewerView: View {
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
         GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
             VStack(spacing: 34) {
                 ZStack {
                 reviewCardBacking(rotation: -3, xOffset: -5, yOffset: 7)
@@ -633,6 +638,15 @@ private struct ReviewerView: View {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(swipeRating.map(color(for:)) ?? MankiPalette.sky.opacity(0.18), lineWidth: swipeRating == nil ? 1.5 : 5)
                 }
+                .overlay(alignment: .topTrailing) {
+                    if let flag = CardFlag(rawValue: card.flag), flag != .none {
+                        Image(systemName: "flag.fill")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(color(for: flag))
+                            .padding(20)
+                            .accessibilityLabel("\(flag.title) flag")
+                    }
+                }
                 .shadow(color: swipeRating.map { color(for: $0).opacity(0.48) } ?? .clear, radius: 20)
                 .offset(cardOffset)
                 .rotationEffect(.degrees(Double(cardOffset.width / 22)))
@@ -641,19 +655,22 @@ private struct ReviewerView: View {
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
                 .accessibilityHint(showingAnswer ? "Swipe down for Again, left for Hard, right for Good, or up for Easy" : "Tap to show the answer")
                 }
-                .frame(height: geometry.size.height * cardHeight)
+                .frame(
+                    width: isLandscape ? geometry.size.width * cardHeight : nil,
+                    height: isLandscape ? nil : geometry.size.height * cardHeight
+                )
+                .frame(maxHeight: isLandscape ? .infinity : nil)
                 if showingAnswer {
                     HStack(spacing: 8) {
                         ForEach(CardRating.allCases) { rating in
                             Button(rating.title) {
-                                Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
+                                submit(card, rating: rating, showsDirectionFirst: true)
                             }.buttonStyle(ReviewRatingButton(color: color(for: rating))).disabled(model.isReviewLoading)
                         }
                     }
                 } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton()) }
-                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
@@ -697,22 +714,23 @@ private struct ReviewerView: View {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) { cardOffset = .zero }
                     return
                 }
-                submit(card, rating: rating)
+                submit(card, rating: rating, showsDirectionFirst: false)
             }
     }
 
-    private func submit(_ card: ReviewCard, rating: CardRating) {
+    private func submit(_ card: ReviewCard, rating: CardRating, showsDirectionFirst: Bool) {
+        guard !isSubmittingSwipe else { return }
         isSubmittingSwipe = true
-        let distance: CGFloat = 900
-        let destination: CGSize
-        switch rating {
-        case .again: destination = CGSize(width: cardOffset.width, height: distance)
-        case .hard: destination = CGSize(width: -distance, height: cardOffset.height)
-        case .good: destination = CGSize(width: distance, height: cardOffset.height)
-        case .easy: destination = CGSize(width: cardOffset.width, height: -distance)
+        if showsDirectionFirst {
+            withAnimation(.easeOut(duration: 0.14)) {
+                cardOffset = CardSwipe.translation(for: rating, distance: CardSwipe.threshold + 8)
+            }
         }
-        withAnimation(.easeIn(duration: 0.22)) { cardOffset = destination }
         Task {
+            if showsDirectionFirst { try? await Task.sleep(for: .milliseconds(160)) }
+            withAnimation(.easeIn(duration: 0.22)) {
+                cardOffset = CardSwipe.translation(for: rating, distance: 900)
+            }
             try? await Task.sleep(for: .milliseconds(220))
             await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt))
             showingAnswer = false
@@ -730,6 +748,19 @@ private struct ReviewerView: View {
         case .easy: MankiPalette.reviewEasy
         }
     }
+
+    private func color(for flag: CardFlag) -> Color {
+        switch flag {
+        case .none: MankiPalette.softInk
+        case .red: .red
+        case .orange: .orange
+        case .green: .green
+        case .blue: .blue
+        case .pink: .pink
+        case .turquoise: .teal
+        case .purple: .purple
+        }
+    }
 }
 
 enum CardSwipe {
@@ -741,6 +772,15 @@ enum CardSwipe {
             return translation.width < 0 ? .hard : .good
         }
         return translation.height < 0 ? .easy : .again
+    }
+
+    static func translation(for rating: CardRating, distance: CGFloat) -> CGSize {
+        switch rating {
+        case .again: CGSize(width: 0, height: distance)
+        case .hard: CGSize(width: -distance, height: 0)
+        case .good: CGSize(width: distance, height: 0)
+        case .easy: CGSize(width: 0, height: -distance)
+        }
     }
 }
 

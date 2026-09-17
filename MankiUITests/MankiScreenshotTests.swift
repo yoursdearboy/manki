@@ -55,6 +55,22 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testSelectedFlagAppearsOnCard() throws {
+        let application = launch(fixture: "review-question")
+        let actions = application.buttons["Card actions"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
+        tapCenter(of: actions)
+        let flagCard = application.buttons["Flag card"]
+        XCTAssertTrue(flagCard.waitForExistence(timeout: 5))
+        tapCenter(of: flagCard)
+        let red = application.buttons["Red"]
+        XCTAssertTrue(red.waitForExistence(timeout: 5))
+        tapCenter(of: red)
+
+        XCTAssertTrue(application.images["Red flag"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testTappingReviewCardRevealsAnswer() throws {
         let application = XCUIApplication()
         application.launchArguments = ["--ui-test-fixture", "review-question", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

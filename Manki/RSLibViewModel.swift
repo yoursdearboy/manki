@@ -80,6 +80,8 @@ enum CardFlag: UInt8, CaseIterable, Identifiable {
         case .purple: return "Purple"
         }
     }
+
+    var systemImage: String { self == .none ? "flag.slash" : "flag.fill" }
 }
 
 enum CardRating: Int32, CaseIterable, Identifiable {
