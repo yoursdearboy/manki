@@ -183,7 +183,7 @@ final class RSLibViewModel: ObservableObject {
         // for a card from that transient state, where an empty queue could be
         // mistaken for a completed deck. sync() resumes this request instead.
         guard !isSyncing else {
-            isReviewLoading = false
+            isReviewLoading = true
             return
         }
         isReviewLoading = true
@@ -192,14 +192,11 @@ final class RSLibViewModel: ObservableObject {
         do {
             let card = try await Task.detached(priority: .userInitiated) { [fetchNextCard] in
                 let card = try fetchNextCard(deck)
-                guard card == nil,
-                      deck.newCount > 0 || deck.learnCount > 0 || deck.dueCount > 0 else {
-                    return card
-                }
                 // The deck list and scheduler queue are loaded by separate
-                // rslib calls. Retry once when their snapshots briefly differ
-                // instead of presenting a false "all caught up" state.
-                return try fetchNextCard(deck)
+                // rslib calls. A post-sync deck snapshot can report zero
+                // counts briefly even when the queue has a card, so retry an
+                // empty queue once before presenting "all caught up".
+                return card ?? (try fetchNextCard(deck))
             }.value
             guard reviewRequestID == requestID, activeReviewDeckID == deck.id else { return }
             reviewCard = card

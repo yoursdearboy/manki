@@ -101,7 +101,7 @@ final class RSLibViewModelTests: XCTestCase {
         await model.loadNextCard(in: deck)
 
         XCTAssertNil(model.reviewCard)
-        XCTAssertFalse(model.isReviewLoading)
+        XCTAssertTrue(model.isReviewLoading)
         XCTAssertNil(model.completedReviewDeckID)
 
         gate.signal()
@@ -139,8 +139,8 @@ final class RSLibViewModelTests: XCTestCase {
         XCTAssertEqual(model.completedReviewDeckID, secondDeck.id)
     }
 
-    func testDueDeckRetriesAnUnexpectedEmptyQueue() async throws {
-        let dueDeck = try deck(id: 1, name: "Due", due: 1)
+    func testEmptyQueueRetriesWhenDeckSnapshotHasNoDueCount() async throws {
+        let deck = try deck(id: 1, name: "Deck")
         let expectedCard = ReviewCard(id: 10, question: "Question", answer: "Answer")
         var attempts = 0
         let model = RSLibViewModel(
@@ -152,7 +152,7 @@ final class RSLibViewModelTests: XCTestCase {
             badgeSetter: NoopBadgeSetter()
         )
 
-        await model.loadNextCard(in: dueDeck)
+        await model.loadNextCard(in: deck)
 
         XCTAssertEqual(attempts, 2)
         XCTAssertEqual(model.reviewCard, expectedCard)
