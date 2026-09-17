@@ -46,13 +46,17 @@ struct ContentView: View {
         }
             .tint(MankiPalette.sky)
             .task { await model.restoreSession() }
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(300))
+                    guard !Task.isCancelled else { return }
+                    await model.periodicSync()
+                }
+            }
             .onChange(of: model.decks, initial: true) { _, decks in
                 Task { await notifications.updateDecks(decks) }
                 openRequestedDeckIfAvailable()
-            }
-            .onChange(of: scenePhase) { _, phase in
-                guard phase == .active else { return }
-                Task { await model.syncWhenActive() }
             }
             .onChange(of: notificationRouter.requestedDeckID) { _, deckID in
                 guard deckID != nil else { return }
@@ -604,8 +608,10 @@ private struct ReviewerView: View {
             }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onDisappear {
-                model.stopReviewing(deckID: deck.id)
-                Task { await model.refreshDueCounts() }
+                Task {
+                    await model.stopReviewing(deckID: deck.id)
+                    await model.refreshDueCounts()
+                }
             }
     }
 

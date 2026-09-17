@@ -119,6 +119,7 @@ final class RSLibViewModel: ObservableObject {
     private var hasRestoredSession = false
     private var isLoadingCache = false
     private var activeReviewDeckID: Int64?
+    private var hasQueuedPeriodicSync = false
     private var reviewRequestID = UUID()
 
     @Published private(set) var completedReviewDeckID: Int64?
@@ -176,8 +177,12 @@ final class RSLibViewModel: ObservableObject {
         await sync()
     }
 
-    func syncWhenActive() async {
+    func periodicSync() async {
         guard fixture == nil, hasRestoredSession, isAuthenticated else { return }
+        guard activeReviewDeckID == nil else {
+            hasQueuedPeriodicSync = true
+            return
+        }
         await sync()
     }
 
@@ -204,6 +209,7 @@ final class RSLibViewModel: ObservableObject {
         isAuthenticated = false
         reviewCard = nil
         activeReviewDeckID = nil
+        hasQueuedPeriodicSync = false
         completedReviewDeckID = nil
         await updateBadge()
     }
@@ -251,13 +257,16 @@ final class RSLibViewModel: ObservableObject {
         if reviewRequestID == requestID { isReviewLoading = false }
     }
 
-    func stopReviewing(deckID: Int64) {
+    func stopReviewing(deckID: Int64) async {
         guard activeReviewDeckID == deckID else { return }
         activeReviewDeckID = nil
         reviewRequestID = UUID()
         reviewCard = nil
         isReviewLoading = false
         completedReviewDeckID = nil
+        guard hasQueuedPeriodicSync else { return }
+        hasQueuedPeriodicSync = false
+        await sync()
     }
 
     func answer(_ card: ReviewCard, in deck: Deck, rating: CardRating, elapsed: TimeInterval) async {
