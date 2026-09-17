@@ -45,10 +45,10 @@ final class MankiScreenshotTests: XCTestCase {
         let application = launch(fixture: "review-question")
         let actions = application.buttons["Card actions"]
         XCTAssertTrue(actions.waitForExistence(timeout: 10))
-        actions.tap()
+        tapCenter(of: actions)
         let flagCard = application.buttons["Flag card"]
         XCTAssertTrue(flagCard.waitForExistence(timeout: 5))
-        flagCard.tap()
+        tapCenter(of: flagCard)
         XCTAssertTrue(application.buttons["Red"].waitForExistence(timeout: 5))
 
         attachScreenshots(named: "card-actions", application: application)
@@ -165,5 +165,13 @@ final class MankiScreenshotTests: XCTestCase {
         XCTAssertTrue(application.wait(for: .runningForeground, timeout: 5))
         attachScreenshot(named: "\(name)-landscape.png")
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    /// SwiftUI menu labels can have a valid accessibility frame while XCTest
+    /// still reports no synthesized hit point. Tapping the element's explicit
+    /// center avoids XCTest's failing scroll-to-visible fallback.
+    @MainActor
+    private func tapCenter(of element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 }
