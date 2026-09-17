@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 private enum MankiPalette {
@@ -573,6 +574,7 @@ private struct ReviewerView: View {
     @State private var cardOffset = CGSize.zero
     @State private var isSubmittingSwipe = false
     @State private var cardHeight: Double
+    @StateObject private var audioPlayer = CardAudioPlayer()
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
         self.model = model
@@ -634,7 +636,15 @@ private struct ReviewerView: View {
                 }
             }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
+            .onChange(of: model.reviewCard?.id, initial: true) { previousCardID, _ in
+                if previousCardID != nil { showingAnswer = false }
+                playVisibleAudio()
+            }
+            .onChange(of: showingAnswer) { _, _ in
+                playVisibleAudio()
+            }
             .onDisappear {
+                audioPlayer.stop()
                 Task {
                     await model.stopReviewing(deckID: deck.id)
                     await model.refreshDueCounts()
@@ -685,22 +695,53 @@ private struct ReviewerView: View {
                 }
                 .frame(height: geometry.size.height * cardHeight)
                 if showingAnswer {
-                    HStack(spacing: 8) {
-                        ForEach(CardRating.allCases) { rating in
-                            Button(rating.title) {
-                                Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
+                    VStack(spacing: 14) {
+                        replayButton(for: card)
+                        HStack(spacing: 8) {
+                            ForEach(CardRating.allCases) { rating in
+                                Button(rating.title) {
+                                    Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
+                                }
+                                .buttonStyle(ReviewRatingButton(
+                                    color: color(for: rating)
+                                ))
+                                .disabled(model.isReviewLoading)
                             }
-                            .buttonStyle(ReviewRatingButton(
-                                color: color(for: rating)
-                            ))
-                            .disabled(model.isReviewLoading)
                         }
                     }
-                } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton(expands: false)) }
+                } else {
+                    VStack(spacing: 14) {
+                        replayButton(for: card)
+                        Button("SHOW ANSWER") { showingAnswer = true }
+                            .buttonStyle(MankiPrimaryButton(expands: false))
+                    }
+                }
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+    }
+
+    @ViewBuilder private func replayButton(for card: ReviewCard) -> some View {
+        if !visibleAudio(for: card).isEmpty {
+            Button { playVisibleAudio() } label: {
+                Label("Replay audio", systemImage: "speaker.wave.2.fill")
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+            }
+            .accessibilityHint("Plays the audio attached to this side of the card again")
+        }
+    }
+
+    private func visibleAudio(for card: ReviewCard) -> [String] {
+        showingAnswer ? card.answerAudio : card.questionAudio
+    }
+
+    private func playVisibleAudio() {
+        guard let card = model.reviewCard else {
+            audioPlayer.stop()
+            return
+        }
+        audioPlayer.play(filenames: visibleAudio(for: card))
     }
 
     @ViewBuilder private func fittedCardText(_ card: ReviewCard, size: CGFloat, spacing: CGFloat) -> some View {
@@ -775,6 +816,44 @@ private struct ReviewerView: View {
         case .good: MankiPalette.reviewGood
         case .easy: MankiPalette.reviewEasy
         }
+    }
+}
+
+@MainActor
+private final class CardAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    private var player: AVAudioPlayer?
+    private var remainingURLs: [URL] = []
+
+    func play(filenames: [String]) {
+        stop()
+        remainingURLs = filenames.compactMap { AnkiRSLibBackend.mediaURL(for: $0) }
+        playNext()
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+        remainingURLs = []
+    }
+
+    private func playNext() {
+        guard !remainingURLs.isEmpty else {
+            player = nil
+            return
+        }
+        do {
+            let nextPlayer = try AVAudioPlayer(contentsOf: remainingURLs.removeFirst())
+            nextPlayer.delegate = self
+            nextPlayer.prepareToPlay()
+            nextPlayer.play()
+            player = nextPlayer
+        } catch {
+            playNext()
+        }
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in playNext() }
     }
 }
 
