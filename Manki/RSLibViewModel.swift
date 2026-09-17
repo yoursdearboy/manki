@@ -277,10 +277,11 @@ final class RSLibViewModel: ObservableObject {
         } catch {
             syncErrorMessage = error.localizedDescription
         }
-        // Reopen the collection to refresh its scheduler snapshot before
-        // resuming a reviewer that was opened during sync. This is the same
-        // refresh that makes cards available after returning to the deck list.
-        if didSync { await loadCache() }
+        // Reopen the collection only when a reviewer was opened during sync.
+        // That refreshes the scheduler snapshot before resuming it, without
+        // replacing the freshly synced deck list in ordinary sync flows.
+        let shouldResumeReview = activeReviewDeckID != nil && reviewCard == nil && isReviewLoading
+        if didSync && shouldResumeReview { await loadCache() }
         isSyncing = false
         await resumeReviewAfterSync()
     }
