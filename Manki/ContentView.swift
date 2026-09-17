@@ -369,11 +369,14 @@ private struct ReviewerView: View {
     @State private var shownAt = Date.now
     @State private var cardOffset = CGSize.zero
     @State private var isSubmittingSwipe = false
+    @State private var cardHeight: Double
+    @State private var isShowingDeckSettings = false
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
         self.model = model
         self.deck = deck
         _showingAnswer = State(initialValue: initiallyShowingAnswer)
+        _cardHeight = State(initialValue: ReviewCardSettings().height(for: deck.id))
     }
 
     var body: some View {
@@ -396,6 +399,18 @@ private struct ReviewerView: View {
                 }
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { isShowingDeckSettings = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .accessibilityLabel("Deck settings")
+                }
+            }
+            .sheet(isPresented: $isShowingDeckSettings) {
+                DeckReviewSettingsView(deck: deck, cardHeight: $cardHeight)
+                    .presentationDetents([.medium])
+            }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onDisappear {
                 model.stopReviewing(deckID: deck.id)
@@ -404,23 +419,21 @@ private struct ReviewerView: View {
     }
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
-        VStack(spacing: 18) {
-            ZStack {
+        GeometryReader { geometry in
+            VStack(spacing: 18) {
+                ZStack {
                 reviewCardBacking(rotation: -3, xOffset: -5, yOffset: 7)
                 reviewCardBacking(rotation: 2, xOffset: 5, yOffset: 3)
                 VStack(alignment: .leading, spacing: 18) {
                     Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            CardText(html: card.question)
-                            if showingAnswer {
-                                Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
-                                Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
-                                CardText(html: card.answer.answerBody)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ViewThatFits(in: .vertical) {
+                        fittedCardText(card, size: 21, spacing: 20)
+                        fittedCardText(card, size: 18, spacing: 14)
+                        fittedCardText(card, size: 15, spacing: 10)
+                        fittedCardText(card, size: 12, spacing: 7)
                     }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .clipped()
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -436,17 +449,33 @@ private struct ReviewerView: View {
                 .gesture(swipeGesture(for: card))
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
                 .accessibilityHint(showingAnswer ? "Swipe down for Again, left for Hard, right for Good, or up for Easy" : "Tap to show the answer")
-            }
-            if showingAnswer {
-                HStack(spacing: 8) {
-                    ForEach(CardRating.allCases) { rating in
-                        Button(rating.title) {
-                            Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
-                        }.buttonStyle(ReviewRatingButton(color: color(for: rating))).disabled(model.isReviewLoading)
-                    }
                 }
-            } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton()) }
+                .frame(height: geometry.size.height * cardHeight)
+                if showingAnswer {
+                    HStack(spacing: 8) {
+                        ForEach(CardRating.allCases) { rating in
+                            Button(rating.title) {
+                                Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
+                            }.buttonStyle(ReviewRatingButton(color: color(for: rating))).disabled(model.isReviewLoading)
+                        }
+                    }
+                } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton()) }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+    }
+
+    @ViewBuilder private func fittedCardText(_ card: ReviewCard, size: CGFloat, spacing: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            CardText(html: card.question, fontSize: size)
+            if showingAnswer {
+                Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
+                Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+                CardText(html: card.answer.answerBody, fontSize: size)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var swipeRating: CardRating? {
@@ -524,9 +553,53 @@ enum CardSwipe {
     }
 }
 
+private struct DeckReviewSettingsView: View {
+    let deck: Deck
+    @Binding var cardHeight: Double
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Review card size")
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                    Text("Choose how much of the review screen the card uses for this deck.")
+                        .font(.subheadline)
+                        .foregroundStyle(MankiPalette.softInk)
+                }
+                Slider(value: $cardHeight, in: ReviewCardSettings.heightRange, step: 0.05) {
+                    Text("Review card height")
+                } minimumValueLabel: {
+                    Text("30%")
+                } maximumValueLabel: {
+                    Text("80%")
+                }
+                .onChange(of: cardHeight) { _, height in
+                    ReviewCardSettings().setHeight(height, for: deck.id)
+                }
+                Text(cardHeight, format: .percent.precision(.fractionLength(0)))
+                    .font(.system(.title2, design: .rounded, weight: .heavy))
+                    .foregroundStyle(MankiPalette.deepSky)
+                    .frame(maxWidth: .infinity)
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle(deck.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 private struct CardText: View {
     let html: String
-    var body: some View { Text(plainText).font(.system(size: 21, weight: .regular, design: .rounded)).foregroundStyle(MankiPalette.ink).textSelection(.enabled) }
+    let fontSize: CGFloat
+    var body: some View { Text(plainText).font(.system(size: fontSize, weight: .regular, design: .rounded)).foregroundStyle(MankiPalette.ink) }
     private var plainText: String {
         html.replacingOccurrences(of: "<br>", with: "\n").replacingOccurrences(of: "<br/>", with: "\n").replacingOccurrences(of: "<br />", with: "\n")
             .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&amp;", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
