@@ -82,6 +82,7 @@ struct ContentView: View {
                         }
                     }
                     .scrollIndicators(.hidden).refreshable { await model.sync() }
+                    .onAppear { Task { await model.deckListDidAppear() } }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -366,6 +367,7 @@ private struct ReviewerView: View {
     @State private var shownAt = Date.now
     @State private var cardOffset = CGSize.zero
     @State private var isSubmittingSwipe = false
+    @Environment(\.dismiss) private var dismiss
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
         self.model = model
@@ -392,6 +394,13 @@ private struct ReviewerView: View {
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
+            .onChange(of: model.completedReviewDeckID) { _, completedDeckID in
+                if completedDeckID == deck.id { dismiss() }
+            }
+            .onDisappear {
+                model.stopReviewing(deckID: deck.id)
+                Task { await model.refreshDueCounts() }
+            }
     }
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {

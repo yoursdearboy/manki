@@ -76,8 +76,15 @@ final class RSLibViewModel: ObservableObject {
     private let fixture: UITestFixture?
     private let loadCachedDecks: () throws -> [Deck]
     private let fetchDecks: (String, String) throws -> [Deck]
+    private let fetchNextCard: (Deck) throws -> ReviewCard?
+    private let submitAnswer: (ReviewCard, Deck, CardRating, UInt32) throws -> Void
     private let badgeController: AppIconBadgeController
     private var hasRestoredSession = false
+    private var isLoadingCache = false
+    private var activeReviewDeckID: Int64?
+    private var reviewRequestID = UUID()
+
+    @Published private(set) var completedReviewDeckID: Int64?
 
     init(
         fixture: UITestFixture? = UITestFixture.current,
@@ -85,6 +92,8 @@ final class RSLibViewModel: ObservableObject {
         isAuthenticated: Bool = false,
         loadCachedDecks: @escaping () throws -> [Deck] = AnkiRSLibBackend.loadCachedDecks,
         fetchDecks: @escaping (String, String) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
+        fetchNextCard: @escaping (Deck) throws -> ReviewCard? = AnkiRSLibBackend.nextCard,
+        submitAnswer: @escaping (ReviewCard, Deck, CardRating, UInt32) throws -> Void = AnkiRSLibBackend.answer,
         badgeSetter: any AppIconBadgeSetting = UserNotificationBadgeSetter()
     ) {
         self.fixture = fixture
@@ -92,6 +101,8 @@ final class RSLibViewModel: ObservableObject {
         self.isAuthenticated = isAuthenticated
         self.loadCachedDecks = loadCachedDecks
         self.fetchDecks = fetchDecks
+        self.fetchNextCard = fetchNextCard
+        self.submitAnswer = submitAnswer
         badgeController = AppIconBadgeController(setter: badgeSetter)
 
         guard let fixture, fixture != .signIn else { return }
@@ -153,6 +164,8 @@ final class RSLibViewModel: ObservableObject {
         lastSynced = nil
         isAuthenticated = false
         reviewCard = nil
+        activeReviewDeckID = nil
+        completedReviewDeckID = nil
         await updateBadge()
     }
 
@@ -161,17 +174,43 @@ final class RSLibViewModel: ObservableObject {
             reviewCard = Self.fixtureCard
             return
         }
+        activeReviewDeckID = deck.id
+        completedReviewDeckID = nil
+        reviewCard = nil
         isReviewLoading = true
         errorMessage = nil
+        let requestID = UUID()
+        reviewRequestID = requestID
         do {
-            reviewCard = try await Task.detached(priority: .userInitiated) {
-                try AnkiRSLibBackend.nextCard(in: deck)
+            let card = try await Task.detached(priority: .userInitiated) { [fetchNextCard] in
+                let card = try fetchNextCard(deck)
+                guard card == nil,
+                      deck.newCount > 0 || deck.learnCount > 0 || deck.dueCount > 0 else {
+                    return card
+                }
+                // The deck list and scheduler queue are loaded by separate
+                // rslib calls. Retry once when their snapshots briefly differ
+                // instead of presenting a false "all caught up" state.
+                return try fetchNextCard(deck)
             }.value
+            guard reviewRequestID == requestID, activeReviewDeckID == deck.id else { return }
+            reviewCard = card
+            if card == nil { completedReviewDeckID = deck.id }
         } catch {
+            guard reviewRequestID == requestID, activeReviewDeckID == deck.id else { return }
             errorMessage = error.localizedDescription
             reviewCard = nil
         }
+        if reviewRequestID == requestID { isReviewLoading = false }
+    }
+
+    func stopReviewing(deckID: Int64) {
+        guard activeReviewDeckID == deckID else { return }
+        activeReviewDeckID = nil
+        reviewRequestID = UUID()
+        reviewCard = nil
         isReviewLoading = false
+        completedReviewDeckID = nil
     }
 
     func answer(_ card: ReviewCard, in deck: Deck, rating: CardRating, elapsed: TimeInterval) async {
@@ -183,11 +222,11 @@ final class RSLibViewModel: ObservableObject {
         errorMessage = nil
         do {
             let milliseconds = UInt32(min(max(elapsed * 1_000, 1), Double(UInt32.max)))
-            try await Task.detached(priority: .userInitiated) {
-                try AnkiRSLibBackend.answer(card, in: deck, rating: rating, millisecondsTaken: milliseconds)
+            try await Task.detached(priority: .userInitiated) { [submitAnswer] in
+                try submitAnswer(card, deck, rating, milliseconds)
             }.value
             await refreshDueCounts()
-            await loadNextCard(in: deck)
+            if activeReviewDeckID == deck.id { await loadNextCard(in: deck) }
         } catch {
             errorMessage = error.localizedDescription
             isReviewLoading = false
@@ -195,6 +234,9 @@ final class RSLibViewModel: ObservableObject {
     }
 
     private func loadCache() async {
+        guard !isLoadingCache else { return }
+        isLoadingCache = true
+        defer { isLoadingCache = false }
         do {
             let cached = try await Task.detached(priority: .userInitiated) { [loadCachedDecks] in
                 try loadCachedDecks()
@@ -238,6 +280,11 @@ final class RSLibViewModel: ObservableObject {
             return
         }
         await loadCache()
+    }
+
+    func deckListDidAppear() async {
+        guard !isSyncing else { return }
+        await refreshDueCounts()
     }
 
     private func updateBadge() async {
