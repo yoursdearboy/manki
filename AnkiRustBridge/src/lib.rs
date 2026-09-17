@@ -18,16 +18,17 @@ use anki::backend::{init_backend, Backend};
 use anki_proto::{
     backend::BackendError,
     card_rendering::{
-        rendered_template_node::Value as RenderedNodeValue, RenderCardResponse,
-        RenderExistingCardRequest,
+        av_tag::Value as AvTagValue, rendered_template_node::Value as RenderedNodeValue,
+        ExtractAvTagsRequest, ExtractAvTagsResponse, RenderCardResponse, RenderExistingCardRequest,
     },
     cards::SetFlagRequest,
     collection::{CloseCollectionRequest, OpenCollectionRequest},
     decks::{DeckId, DeckNames, DeckTreeNode, DeckTreeRequest, GetDeckNamesRequest},
     scheduler::{card_answer::Rating, CardAnswer, GetQueuedCardsRequest, QueuedCards},
     sync::{
-        sync_collection_response::ChangesRequired, FullUploadOrDownloadRequest, SyncAuth,
-        SyncCollectionRequest, SyncCollectionResponse, SyncLoginRequest,
+        sync_collection_response::ChangesRequired, FullUploadOrDownloadRequest,
+        MediaSyncStatusResponse, SyncAuth, SyncCollectionRequest, SyncCollectionResponse,
+        SyncLoginRequest,
     },
 };
 use prost::Message;
@@ -46,6 +47,7 @@ const SERVICE_CARDS: u32 = 5;
 const OPEN_COLLECTION: u32 = 0;
 const CLOSE_COLLECTION: u32 = 1;
 const SYNC_LOGIN: u32 = 3;
+const MEDIA_SYNC_STATUS: u32 = 2;
 const SYNC_COLLECTION: u32 = 5;
 const FULL_UPLOAD_OR_DOWNLOAD: u32 = 6;
 const DECK_TREE: u32 = 4;
@@ -55,6 +57,7 @@ const SET_FLAG: u32 = 4;
 const GET_QUEUED_CARDS: u32 = 3;
 const ANSWER_CARD: u32 = 4;
 const RENDER_EXISTING_CARD: u32 = 6;
+const EXTRACT_AV_TAGS: u32 = 0;
 const SERVICE_SCHEDULER: u32 = 13;
 const SERVICE_CARD_RENDERING: u32 = 27;
 
@@ -316,10 +319,16 @@ pub unsafe extern "C" fn manki_anki_get_next_card(
                 partial_render: false,
             },
         )?;
+        let question = rendered_text(rendered.question_nodes);
+        let answer = rendered_text(rendered.answer_nodes);
+        let (question, question_audio) = extract_audio(backend, question, true)?;
+        let (answer, answer_audio) = extract_audio(backend, answer, false)?;
         serde_json::to_vec(&json!({
             "id": card_id,
-            "question": rendered_text(rendered.question_nodes),
-            "answer": rendered_text(rendered.answer_nodes),
+            "question": question,
+            "answer": answer,
+            "questionAudio": question_audio,
+            "answerAudio": answer_audio,
             "flag": card.flags & 7,
         }))
         .map_err(|error| format!("could not encode card: {error}"))
@@ -542,6 +551,31 @@ fn rendered_text(nodes: Vec<anki_proto::card_rendering::RenderedTemplateNode>) -
         .collect()
 }
 
+fn extract_audio(
+    backend: &Backend,
+    text: String,
+    question_side: bool,
+) -> Result<(String, Vec<String>), String> {
+    let extracted: ExtractAvTagsResponse = call(
+        backend,
+        SERVICE_CARD_RENDERING,
+        EXTRACT_AV_TAGS,
+        ExtractAvTagsRequest {
+            text,
+            question_side,
+        },
+    )?;
+    let filenames = extracted
+        .av_tags
+        .into_iter()
+        .filter_map(|tag| match tag.value {
+            Some(AvTagValue::SoundOrVideo(filename)) => Some(filename),
+            _ => None,
+        })
+        .collect();
+    Ok((extracted.text, filenames))
+}
+
 fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -571,7 +605,7 @@ fn fetch_decks_from_open_collection(
         SYNC_COLLECTION,
         SyncCollectionRequest {
             auth: Some(auth.clone()),
-            sync_media: false,
+            sync_media: true,
         },
     )?;
 
@@ -594,11 +628,7 @@ fn fetch_decks_from_open_collection(
                 FullUploadOrDownloadRequest {
                     auth: Some(download_auth),
                     upload: false,
-                    // We only need collection data to list decks. Supplying a
-                    // media USN starts a background media sync after the full
-                    // download, which is unnecessary here and can fail
-                    // independently of collection sync.
-                    server_usn: None,
+                    server_usn: Some(sync.server_media_usn),
                 },
             )?;
         }
@@ -611,7 +641,24 @@ fn fetch_decks_from_open_collection(
         ),
     }
 
+    wait_for_media_sync(backend)?;
+
     deck_list(backend)
+}
+
+fn wait_for_media_sync(backend: &Backend) -> Result<(), String> {
+    loop {
+        let status: MediaSyncStatusResponse = call(
+            backend,
+            SERVICE_SYNC,
+            MEDIA_SYNC_STATUS,
+            anki_proto::generic::Empty::default(),
+        )?;
+        if !status.active {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 fn deck_list(backend: &Backend) -> Result<Vec<u8>, String> {

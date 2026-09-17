@@ -44,22 +44,35 @@ struct ReviewCard: Decodable, Identifiable, Equatable {
     let id: Int64
     let question: String
     let answer: String
+    let questionAudio: [String]
+    let answerAudio: [String]
     let flag: UInt8
 
-    init(id: Int64, question: String, answer: String, flag: UInt8 = 0) {
+    init(
+        id: Int64,
+        question: String,
+        answer: String,
+        questionAudio: [String] = [],
+        answerAudio: [String] = [],
+        flag: UInt8 = 0
+    ) {
         self.id = id
         self.question = question
         self.answer = answer
+        self.questionAudio = questionAudio
+        self.answerAudio = answerAudio
         self.flag = flag
     }
 
-    private enum CodingKeys: String, CodingKey { case id, question, answer, flag }
+    private enum CodingKeys: String, CodingKey { case id, question, answer, questionAudio, answerAudio, flag }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(Int64.self, forKey: .id)
         question = try values.decode(String.self, forKey: .question)
         answer = try values.decode(String.self, forKey: .answer)
+        questionAudio = try values.decodeIfPresent([String].self, forKey: .questionAudio) ?? []
+        answerAudio = try values.decodeIfPresent([String].self, forKey: .answerAudio) ?? []
         flag = try values.decodeIfPresent(UInt8.self, forKey: .flag) ?? 0
     }
 }
@@ -295,7 +308,14 @@ final class RSLibViewModel: ObservableObject {
 
     func setFlag(_ flag: CardFlag, on card: ReviewCard) async {
         guard fixture == nil else {
-            reviewCard = ReviewCard(id: card.id, question: card.question, answer: card.answer, flag: flag.rawValue)
+            reviewCard = ReviewCard(
+                id: card.id,
+                question: card.question,
+                answer: card.answer,
+                questionAudio: card.questionAudio,
+                answerAudio: card.answerAudio,
+                flag: flag.rawValue
+            )
             return
         }
         errorMessage = nil
@@ -304,7 +324,14 @@ final class RSLibViewModel: ObservableObject {
                 try setCardFlag(card, flag)
             }.value
             guard reviewCard?.id == card.id else { return }
-            reviewCard = ReviewCard(id: card.id, question: card.question, answer: card.answer, flag: flag.rawValue)
+            reviewCard = ReviewCard(
+                id: card.id,
+                question: card.question,
+                answer: card.answer,
+                questionAudio: card.questionAudio,
+                answerAudio: card.answerAudio,
+                flag: flag.rawValue
+            )
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -395,13 +422,17 @@ final class RSLibViewModel: ObservableObject {
     static let fixtureCard = ReviewCard(
         id: 101,
         question: "What is the capital of Argentina?",
-        answer: "What is the capital of Argentina?<hr id=answer><b>Buenos Aires</b>"
+        answer: "What is the capital of Argentina?<hr id=answer><b>Buenos Aires</b>",
+        questionAudio: ["fixture-question.mp3"],
+        answerAudio: ["fixture-answer.mp3"]
     )
 
     static let redFlagFixtureCard = ReviewCard(
         id: fixtureCard.id,
         question: fixtureCard.question,
         answer: fixtureCard.answer,
+        questionAudio: fixtureCard.questionAudio,
+        answerAudio: fixtureCard.answerAudio,
         flag: CardFlag.red.rawValue
     )
 }
