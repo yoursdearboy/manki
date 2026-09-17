@@ -8,7 +8,8 @@ fi
 
 PROFILE="$1"
 REPOSITORY="yoursdearboy/manki"
-ARTIFACT_NAME="Manki-unsigned-iphone.zip"
+# This is the Actions artifact label. GitHub downloads its contents as a ZIP.
+ARTIFACT_NAME="Manki-unsigned-iphone"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
