@@ -51,7 +51,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             switch fixture {
-            case .reviewQuestion:
+            case .reviewQuestion, .redFlagCard:
                 NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0]) }
             case .reviewAnswer:
                 NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], initiallyShowingAnswer: true) }
