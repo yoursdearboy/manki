@@ -381,7 +381,9 @@ private struct ReviewerView: View {
             MankiPalette.mist.ignoresSafeArea()
             VStack(spacing: 18) {
                 Text(deck.name).font(.caption.weight(.bold)).foregroundStyle(MankiPalette.deepSky).textCase(.uppercase).tracking(1.2).lineLimit(1)
-                if model.isReviewLoading && model.reviewCard == nil {
+                if model.isSyncing && model.reviewCard == nil {
+                    ProgressView("Syncing your collection…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if model.isReviewLoading && model.reviewCard == nil {
                     ProgressView("Finding your next card…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let card = model.reviewCard {
                     reviewContent(card)

@@ -178,8 +178,15 @@ final class RSLibViewModel: ObservableObject {
         activeReviewDeckID = deck.id
         completedReviewDeckID = nil
         reviewCard = nil
-        isReviewLoading = true
         errorMessage = nil
+        // Sync updates rslib's scheduler and collection together. Do not ask
+        // for a card from that transient state, where an empty queue could be
+        // mistaken for a completed deck. sync() resumes this request instead.
+        guard !isSyncing else {
+            isReviewLoading = false
+            return
+        }
+        isReviewLoading = true
         let requestID = UUID()
         reviewRequestID = requestID
         do {
@@ -253,7 +260,6 @@ final class RSLibViewModel: ObservableObject {
         guard fixture == nil else { return }
         guard !isSyncing else { return }
         isSyncing = true
-        defer { isSyncing = false }
         errorMessage = nil
         syncErrorMessage = nil
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -269,6 +275,15 @@ final class RSLibViewModel: ObservableObject {
         } catch {
             syncErrorMessage = error.localizedDescription
         }
+        isSyncing = false
+        await resumeReviewAfterSync()
+    }
+
+    private func resumeReviewAfterSync() async {
+        guard reviewCard == nil,
+              let activeReviewDeckID,
+              let deck = decks.first(where: { $0.id == activeReviewDeckID }) else { return }
+        await loadNextCard(in: deck)
     }
 
     private func sorted(_ decks: [Deck]) -> [Deck] {

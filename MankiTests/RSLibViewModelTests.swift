@@ -78,6 +78,39 @@ final class RSLibViewModelTests: XCTestCase {
         await first.value
     }
 
+    func testOpeningDeckDuringSyncWaitsForSyncBeforeLoadingCard() async throws {
+        let deck = try deck(id: 1, name: "Deck", due: 1)
+        let expectedCard = ReviewCard(id: 10, question: "Question", answer: "Answer")
+        let gate = DispatchSemaphore(value: 0)
+        let syncStarted = expectation(description: "background sync started")
+        let model = RSLibViewModel(
+            decks: [deck],
+            isAuthenticated: true,
+            loadCachedDecks: { [] },
+            fetchDecks: { _, _ in
+                syncStarted.fulfill()
+                gate.wait()
+                return [deck]
+            },
+            fetchNextCard: { _ in expectedCard },
+            badgeSetter: NoopBadgeSetter()
+        )
+
+        let sync = Task { await model.sync() }
+        await fulfillment(of: [syncStarted], timeout: 2)
+        await model.loadNextCard(in: deck)
+
+        XCTAssertNil(model.reviewCard)
+        XCTAssertFalse(model.isReviewLoading)
+        XCTAssertNil(model.completedReviewDeckID)
+
+        gate.signal()
+        await sync.value
+
+        XCTAssertEqual(model.reviewCard, expectedCard)
+        XCTAssertNil(model.completedReviewDeckID)
+    }
+
     func testLoadingDeckClearsStaleCardBeforeRequestCompletes() async throws {
         let firstDeck = try deck(id: 1, name: "First")
         let secondDeck = try deck(id: 2, name: "Second")
