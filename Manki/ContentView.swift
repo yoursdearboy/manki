@@ -22,6 +22,8 @@ struct ContentView: View {
     @StateObject private var notifications = NotificationSettings()
     private let fixture: UITestFixture?
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var notificationRouter: NotificationRouter
+    @State private var deckPath: [Int64] = []
 
     init() {
         let fixture = UITestFixture.current
@@ -46,15 +48,20 @@ struct ContentView: View {
             .task { await model.restoreSession() }
             .onChange(of: model.decks, initial: true) { _, decks in
                 Task { await notifications.updateDecks(decks) }
+                openRequestedDeckIfAvailable()
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task { await model.syncWhenActive() }
             }
+            .onChange(of: notificationRouter.requestedDeckID) { _, deckID in
+                guard deckID != nil else { return }
+                openRequestedDeckIfAvailable()
+            }
     }
 
     private var decksScreen: some View {
-        NavigationStack {
+        NavigationStack(path: $deckPath) {
             ZStack {
                 MankiPalette.canvas.ignoresSafeArea()
                 if model.isSyncing && model.decks.isEmpty {
@@ -70,9 +77,17 @@ struct ContentView: View {
                                 .foregroundStyle(MankiPalette.ink)
                                 .padding(.horizontal, 24).padding(.top, 8)
                             ForEach(Array(model.decks.enumerated()), id: \.element.id) { index, deck in
-                                NavigationLink { ReviewerView(model: model, deck: deck) } label: {
+                                NavigationLink(value: deck.id) {
                                     DeckRow(deck: deck, accent: deckAccent(for: index))
                                 }
+                                .contextMenu {
+                                    NavigationLink {
+                                        DeckSettingsView(model: model, notifications: notifications, deck: deck)
+                                    } label: {
+                                        Label("Deck settings", systemImage: "slider.horizontal.3")
+                                    }
+                                }
+                                .accessibilityHint("Touch and hold for deck settings")
                                 .buttonStyle(.plain).padding(.horizontal, 20)
                             }
                             DeckSchedulerLegend()
@@ -88,6 +103,11 @@ struct ContentView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: Int64.self) { deckID in
+                if let deck = model.decks.first(where: { $0.id == deckID }) {
+                    ReviewerView(model: model, deck: deck)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) { MankiWordmark(compact: true) }
                 ToolbarItem(placement: .topBarLeading) {
@@ -188,6 +208,13 @@ struct ContentView: View {
     private func deckAccent(for index: Int) -> Color {
         [MankiPalette.sky, MankiPalette.violet, MankiPalette.coral, Color(red: 0.15, green: 0.70, blue: 0.48)][index % 4]
     }
+
+    private func openRequestedDeckIfAvailable() {
+        guard let deckID = notificationRouter.requestedDeckID,
+              model.decks.contains(where: { $0.id == deckID }) else { return }
+        deckPath = [deckID]
+        notificationRouter.requestedDeckID = nil
+    }
 }
 
 private struct SettingsView: View {
@@ -250,6 +277,8 @@ private struct SettingsView: View {
                         }
                     }
 
+                    BadgeSettingsSection(model: model)
+
                     SettingsSection(title: "ACCOUNT") {
                         Button(role: .destructive) {
                             isConfirmingLogout = true
@@ -287,6 +316,131 @@ private struct SettingsView: View {
         } message: {
             Text("Your saved AnkiWeb credentials and local session will be cleared.")
         }
+    }
+}
+
+private struct BadgeSettingsSection: View {
+    @ObservedObject var model: RSLibViewModel
+    @State private var includeNew = BadgePreferences().includesNew
+    @State private var includeLearn = BadgePreferences().includesLearn
+    @State private var includeDue = BadgePreferences().includesDue
+
+    var body: some View {
+        SettingsSection(title: "APP ICON COUNT") {
+            VStack(spacing: 16) {
+                Toggle("New cards", isOn: binding(\.includesNew, value: $includeNew))
+                Toggle("Learning cards", isOn: binding(\.includesLearn, value: $includeLearn))
+                Toggle("Due cards", isOn: binding(\.includesDue, value: $includeDue))
+            }
+            .font(.system(.body, design: .rounded, weight: .bold))
+        }
+    }
+
+    private func binding(_ keyPath: WritableKeyPath<BadgePreferences, Bool>, value: Binding<Bool>) -> Binding<Bool> {
+        Binding(get: { value.wrappedValue }, set: { enabled in
+            value.wrappedValue = enabled
+            var preferences = BadgePreferences()
+            preferences[keyPath: keyPath] = enabled
+            Task { await model.refreshBadge() }
+        })
+    }
+}
+
+private struct DeckSettingsView: View {
+    @ObservedObject var model: RSLibViewModel
+    @ObservedObject var notifications: NotificationSettings
+    let deck: Deck
+    @State private var contributesToBadge: Bool
+    @State private var sendsReminders: Bool
+    @State private var reminderTimes: [DailyNotificationTime]
+    @State private var cardHeight: Double
+
+    init(model: RSLibViewModel, notifications: NotificationSettings, deck: Deck) {
+        self.model = model
+        self.notifications = notifications
+        self.deck = deck
+        _contributesToBadge = State(initialValue: BadgePreferences().includesDeck(deck.id))
+        _sendsReminders = State(initialValue: notifications.isEnabled(for: deck.id))
+        _reminderTimes = State(initialValue: notifications.times(for: deck.id))
+        _cardHeight = State(initialValue: ReviewCardSettings().height(for: deck.id))
+    }
+
+    var body: some View {
+        Form {
+            Section("App icon") {
+                Toggle("Include this deck in count", isOn: $contributesToBadge)
+                    .onChange(of: contributesToBadge) { _, included in
+                        BadgePreferences().setIncludesDeck(included, deckID: deck.id)
+                        Task { await model.refreshBadge() }
+                    }
+            }
+            Section("Notifications") {
+                Toggle("Remind me to study this deck", isOn: $sendsReminders)
+                    .onChange(of: sendsReminders) { _, enabled in
+                        Task { await notifications.setEnabled(enabled, for: deck.id) }
+                    }
+                if sendsReminders {
+                    ForEach(reminderTimes) { time in
+                        HStack {
+                            DatePicker(
+                                "Reminder time",
+                                selection: Binding(
+                                    get: { time.date },
+                                    set: { date in
+                                        Task {
+                                            await notifications.updateTime(id: time.id, date: date, for: deck.id)
+                                            reminderTimes = notifications.times(for: deck.id)
+                                        }
+                                    }
+                                ),
+                                displayedComponents: .hourAndMinute
+                            )
+                            .labelsHidden()
+                            Spacer()
+                            Button(role: .destructive) {
+                                Task {
+                                    await notifications.removeTime(id: time.id, for: deck.id)
+                                    reminderTimes = notifications.times(for: deck.id)
+                                }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                        }
+                    }
+                    Button {
+                        Task {
+                            await notifications.addTime(for: deck.id)
+                            reminderTimes = notifications.times(for: deck.id)
+                        }
+                    } label: {
+                        Label("Add reminder", systemImage: "plus.circle.fill")
+                    }
+                }
+                Text("These are additional reminders for this deck, separate from the app-wide reminder schedule.")
+                    .font(.footnote)
+                    .foregroundStyle(MankiPalette.softInk)
+            }
+            Section("Review") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Review card size")
+                    Slider(value: $cardHeight, in: ReviewCardSettings.heightRange, step: 0.05) {
+                        Text("Review card height")
+                    } minimumValueLabel: {
+                        Text("30%")
+                    } maximumValueLabel: {
+                        Text("80%")
+                    }
+                    .onChange(of: cardHeight) { _, height in
+                        ReviewCardSettings().setHeight(height, for: deck.id)
+                    }
+                    Text(cardHeight, format: .percent.precision(.fractionLength(0)))
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(MankiPalette.deepSky)
+                }
+            }
+        }
+        .navigationTitle(deck.name)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -370,7 +524,6 @@ private struct ReviewerView: View {
     @State private var cardOffset = CGSize.zero
     @State private var isSubmittingSwipe = false
     @State private var cardHeight: Double
-    @State private var isShowingDeckSettings = false
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
         self.model = model
@@ -382,7 +535,7 @@ private struct ReviewerView: View {
     var body: some View {
         ZStack {
             MankiPalette.mist.ignoresSafeArea()
-            VStack(spacing: 18) {
+            VStack(spacing: 30) {
                 Text(deck.name).font(.caption.weight(.bold)).foregroundStyle(MankiPalette.deepSky).textCase(.uppercase).tracking(1.2).lineLimit(1)
                 if model.isSyncing && model.reviewCard == nil {
                     ProgressView("Syncing your collection…").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -399,18 +552,6 @@ private struct ReviewerView: View {
                 }
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { isShowingDeckSettings = true } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
-                    .accessibilityLabel("Deck settings")
-                }
-            }
-            .sheet(isPresented: $isShowingDeckSettings) {
-                DeckReviewSettingsView(deck: deck, cardHeight: $cardHeight)
-                    .presentationDetents([.medium])
-            }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onDisappear {
                 model.stopReviewing(deckID: deck.id)
@@ -420,7 +561,7 @@ private struct ReviewerView: View {
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
         GeometryReader { geometry in
-            VStack(spacing: 18) {
+            VStack(spacing: 34) {
                 ZStack {
                 reviewCardBacking(rotation: -3, xOffset: -5, yOffset: 7)
                 reviewCardBacking(rotation: 2, xOffset: 5, yOffset: 3)
@@ -550,49 +691,6 @@ enum CardSwipe {
             return translation.width < 0 ? .hard : .good
         }
         return translation.height < 0 ? .easy : .again
-    }
-}
-
-private struct DeckReviewSettingsView: View {
-    let deck: Deck
-    @Binding var cardHeight: Double
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Review card size")
-                        .font(.system(.title3, design: .rounded, weight: .bold))
-                    Text("Choose how much of the review screen the card uses for this deck.")
-                        .font(.subheadline)
-                        .foregroundStyle(MankiPalette.softInk)
-                }
-                Slider(value: $cardHeight, in: ReviewCardSettings.heightRange, step: 0.05) {
-                    Text("Review card height")
-                } minimumValueLabel: {
-                    Text("30%")
-                } maximumValueLabel: {
-                    Text("80%")
-                }
-                .onChange(of: cardHeight) { _, height in
-                    ReviewCardSettings().setHeight(height, for: deck.id)
-                }
-                Text(cardHeight, format: .percent.precision(.fractionLength(0)))
-                    .font(.system(.title2, design: .rounded, weight: .heavy))
-                    .foregroundStyle(MankiPalette.deepSky)
-                    .frame(maxWidth: .infinity)
-                Spacer()
-            }
-            .padding(24)
-            .navigationTitle(deck.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
     }
 }
 

@@ -31,12 +31,14 @@ struct UserNotificationBadgeSetter: AppIconBadgeSetting {
 @MainActor
 final class AppIconBadgeController {
     private let setter: any AppIconBadgeSetting
+    private let preferences: BadgePreferences
 
-    init(setter: any AppIconBadgeSetting = UserNotificationBadgeSetter()) {
+    init(setter: any AppIconBadgeSetting = UserNotificationBadgeSetter(), preferences: BadgePreferences = BadgePreferences()) {
         self.setter = setter
+        self.preferences = preferences
     }
 
     func update(decks: [Deck], isAuthenticated: Bool) async {
-        await setter.setBadgeCount(isAuthenticated ? DueBadgeCount.total(for: decks) : 0)
+        await setter.setBadgeCount(isAuthenticated ? preferences.total(for: decks) : 0)
     }
 }
