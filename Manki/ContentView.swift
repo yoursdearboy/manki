@@ -369,11 +369,14 @@ private struct ReviewerView: View {
     @State private var shownAt = Date.now
     @State private var cardOffset = CGSize.zero
     @State private var isSubmittingSwipe = false
+    @State private var isShowingDeckSettings = false
+    @State private var cardHeightFraction: Double
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
         self.model = model
         self.deck = deck
         _showingAnswer = State(initialValue: initiallyShowingAnswer)
+        _cardHeightFraction = State(initialValue: DeckCardSizing.load(for: deck.id))
     }
 
     var body: some View {
@@ -386,7 +389,9 @@ private struct ReviewerView: View {
                 } else if model.isReviewLoading && model.reviewCard == nil {
                     ProgressView("Finding your next card…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let card = model.reviewCard {
-                    reviewContent(card)
+                    GeometryReader { geometry in
+                        reviewContent(card, availableHeight: geometry.size.height)
+                    }
                 } else {
                     VStack(spacing: 16) {
                         Image(systemName: "party.popper.fill").font(.system(size: 52)).foregroundStyle(MankiPalette.coral)
@@ -396,6 +401,20 @@ private struct ReviewerView: View {
                 }
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { isShowingDeckSettings = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .accessibilityLabel("Deck settings")
+                }
+            }
+            .sheet(isPresented: $isShowingDeckSettings) {
+                DeckSettingsView(deckName: deck.name, cardHeightFraction: $cardHeightFraction)
+            }
+            .onChange(of: cardHeightFraction) { _, fraction in
+                DeckCardSizing.save(fraction, for: deck.id)
+            }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onDisappear {
                 model.stopReviewing(deckID: deck.id)
@@ -403,25 +422,12 @@ private struct ReviewerView: View {
             }
     }
 
-    @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
+    @ViewBuilder private func reviewContent(_ card: ReviewCard, availableHeight: CGFloat) -> some View {
         VStack(spacing: 18) {
             ZStack {
                 reviewCardBacking(rotation: -3, xOffset: -5, yOffset: 7)
                 reviewCardBacking(rotation: 2, xOffset: 5, yOffset: 3)
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            CardText(html: card.question)
-                            if showingAnswer {
-                                Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
-                                Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
-                                CardText(html: card.answer.answerBody)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                FittingCardContent(card: card, showingAnswer: showingAnswer)
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(MankiPalette.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -437,6 +443,8 @@ private struct ReviewerView: View {
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
                 .accessibilityHint(showingAnswer ? "Swipe down for Again, left for Hard, right for Good, or up for Easy" : "Tap to show the answer")
             }
+            .frame(height: max(180, availableHeight * cardHeightFraction))
+            .frame(maxHeight: .infinity, alignment: .center)
             if showingAnswer {
                 HStack(spacing: 8) {
                     ForEach(CardRating.allCases) { rating in
@@ -512,6 +520,94 @@ private struct ReviewerView: View {
     }
 }
 
+enum DeckCardSizing {
+    static let defaultFraction = 0.5
+    static let range = 0.3...0.8
+
+    static func load(for deckID: Int64, defaults: UserDefaults = .standard) -> Double {
+        let key = storageKey(for: deckID)
+        guard defaults.object(forKey: key) != nil else { return defaultFraction }
+        return normalized(defaults.double(forKey: key))
+    }
+
+    static func save(_ fraction: Double, for deckID: Int64, defaults: UserDefaults = .standard) {
+        defaults.set(normalized(fraction), forKey: storageKey(for: deckID))
+    }
+
+    static func normalized(_ fraction: Double) -> Double {
+        min(max(fraction, range.lowerBound), range.upperBound)
+    }
+
+    private static func storageKey(for deckID: Int64) -> String {
+        "deck.\(deckID).cardHeightFraction"
+    }
+}
+
+private struct DeckSettingsView: View {
+    let deckName: String
+    @Binding var cardHeightFraction: Double
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("CARD") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Vertical card size")
+                            Spacer()
+                            Text(cardHeightFraction, format: .percent.precision(.fractionLength(0)))
+                                .foregroundStyle(MankiPalette.softInk)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $cardHeightFraction, in: DeckCardSizing.range, step: 0.05)
+                            .accessibilityLabel("Vertical card size")
+                            .accessibilityValue(Text(cardHeightFraction, format: .percent.precision(.fractionLength(0))))
+                    }
+                } footer: {
+                    Text("Card content scales to fit without scrolling, leaving swipe gestures uninterrupted.")
+                }
+            }
+            .navigationTitle(deckName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+}
+
+private struct FittingCardContent: View {
+    let card: ReviewCard
+    let showingAnswer: Bool
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content(fontSize: 21, spacing: 20)
+            content(fontSize: 18, spacing: 16)
+            content(fontSize: 15, spacing: 12)
+            content(fontSize: 12, spacing: 8)
+            content(fontSize: 9, spacing: 5)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+    }
+
+    private func content(fontSize: CGFloat, spacing: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+            CardText(html: card.question, fontSize: fontSize)
+            if showingAnswer {
+                Rectangle().fill(MankiPalette.sky.opacity(0.18)).frame(height: 1)
+                Text("answer").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
+                CardText(html: card.answer.answerBody, fontSize: fontSize)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 enum CardSwipe {
     static let threshold: CGFloat = 80
 
@@ -526,7 +622,8 @@ enum CardSwipe {
 
 private struct CardText: View {
     let html: String
-    var body: some View { Text(plainText).font(.system(size: 21, weight: .regular, design: .rounded)).foregroundStyle(MankiPalette.ink).textSelection(.enabled) }
+    let fontSize: CGFloat
+    var body: some View { Text(plainText).font(.system(size: fontSize, weight: .regular, design: .rounded)).foregroundStyle(MankiPalette.ink).textSelection(.enabled) }
     private var plainText: String {
         html.replacingOccurrences(of: "<br>", with: "\n").replacingOccurrences(of: "<br/>", with: "\n").replacingOccurrences(of: "<br />", with: "\n")
             .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&amp;", with: "").trimmingCharacters(in: .whitespacesAndNewlines)

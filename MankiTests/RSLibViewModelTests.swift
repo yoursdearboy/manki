@@ -3,6 +3,23 @@ import XCTest
 
 @MainActor
 final class RSLibViewModelTests: XCTestCase {
+    func testDeckCardSizeDefaultsToHalfAndPersistsPerDeck() {
+        let suiteName = "DeckCardSizingTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(DeckCardSizing.load(for: 1, defaults: defaults), 0.5)
+        DeckCardSizing.save(0.65, for: 1, defaults: defaults)
+
+        XCTAssertEqual(DeckCardSizing.load(for: 1, defaults: defaults), 0.65)
+        XCTAssertEqual(DeckCardSizing.load(for: 2, defaults: defaults), 0.5)
+    }
+
+    func testDeckCardSizeIsLimitedToSliderRange() {
+        XCTAssertEqual(DeckCardSizing.normalized(0.1), 0.3)
+        XCTAssertEqual(DeckCardSizing.normalized(0.9), 0.8)
+    }
+
     func testCardSwipeMapsFourDirectionsToRatings() {
         XCTAssertEqual(CardSwipe.rating(for: CGSize(width: 0, height: 100)), .again)
         XCTAssertEqual(CardSwipe.rating(for: CGSize(width: -100, height: 0)), .hard)

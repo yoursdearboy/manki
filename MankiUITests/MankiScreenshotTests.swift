@@ -41,6 +41,25 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testTappingCardRevealsAnswer() throws {
+        let application = launch(fixture: "review-question")
+        let answerButton = application.buttons["SHOW ANSWER"]
+        XCTAssertTrue(answerButton.waitForExistence(timeout: 10))
+        application.staticTexts["What is the capital of Argentina?"].tap()
+        XCTAssertTrue(application.staticTexts["Buenos Aires"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testDeckSettings() throws {
+        let application = launch(fixture: "review-question")
+        let settingsButton = application.buttons["Deck settings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.tap()
+        XCTAssertTrue(application.sliders["Vertical card size"].waitForExistence(timeout: 5))
+        attachScreenshot(named: "deck-settings")
+    }
+
+    @MainActor
     func testRevealedAnswer() throws {
         capture(fixture: "revealed-answer") { $0.staticTexts["Buenos Aires"] }
     }
@@ -52,13 +71,24 @@ final class MankiScreenshotTests: XCTestCase {
 
     @MainActor
     private func capture(fixture: String, readyElement: (XCUIApplication) -> XCUIElement) {
+        let application = launch(fixture: fixture)
+
+        XCTAssertTrue(readyElement(application).waitForExistence(timeout: 10), "The \(fixture) fixture did not become ready")
+        attachScreenshot(named: fixture)
+    }
+
+    @MainActor
+    private func launch(fixture: String) -> XCUIApplication {
         let application = XCUIApplication()
         application.launchArguments = ["--ui-test-fixture", fixture, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         application.launch()
+        return application
+    }
 
-        XCTAssertTrue(readyElement(application).waitForExistence(timeout: 10), "The \(fixture) fixture did not become ready")
+    @MainActor
+    private func attachScreenshot(named name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "\(fixture).png"
+        attachment.name = "\(name).png"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
