@@ -76,8 +76,8 @@ final class MankiScreenshotTests: XCTestCase {
         XCTAssertTrue(settingsAction.waitForExistence(timeout: 5))
         settingsAction.tap()
         XCTAssertTrue(application.switches["Include this deck in count"].waitForExistence(timeout: 5))
-        XCTAssertTrue(application.buttons["Delete reminder at 9:00 AM"].waitForExistence(timeout: 5))
-        XCTAssertTrue(application.buttons["Delete reminder at 6:00 PM"].exists)
+        XCTAssertTrue(application.buttons["deck-reminder-delete-09-00"].waitForExistence(timeout: 5))
+        XCTAssertTrue(application.buttons["deck-reminder-delete-18-00"].exists)
 
         attachScreenshot(named: "deck-settings-extra-reminders.png")
     }
