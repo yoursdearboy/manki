@@ -417,6 +417,7 @@ private struct DeckSettingsView: View {
                                             Image(systemName: "trash")
                                         }
                                         .accessibilityLabel("Delete reminder at \(time.date.formatted(date: .omitted, time: .shortened))")
+                                        .accessibilityIdentifier(time.deleteButtonAccessibilityIdentifier)
                                     }
                                 }
                                 Button {
@@ -462,6 +463,12 @@ private struct DeckSettingsView: View {
         }
         .navigationTitle(deck.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private extension DailyNotificationTime {
+    var deleteButtonAccessibilityIdentifier: String {
+        String(format: "deck-reminder-delete-%02d-%02d", hour, minute)
     }
 }
 
