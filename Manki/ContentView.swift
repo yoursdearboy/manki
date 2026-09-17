@@ -671,7 +671,7 @@ private struct ReviewerView: View {
                         Image(systemName: flag.systemImage)
                             .font(.title3.weight(.bold))
                             .foregroundStyle(flag.color)
-                            .padding(24)
+                            .padding(12)
                             .accessibilityLabel("\(flag.title) flag")
                     }
                 }
@@ -691,13 +691,12 @@ private struct ReviewerView: View {
                                 Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
                             }
                             .buttonStyle(ReviewRatingButton(
-                                color: color(for: rating),
-                                expands: geometry.size.width <= geometry.size.height
+                                color: color(for: rating)
                             ))
                             .disabled(model.isReviewLoading)
                         }
                     }
-                } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton()) }
+                } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton(expands: false)) }
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -852,8 +851,11 @@ private struct FloatingCard: View {
 }
 
 private struct MankiPrimaryButton: ButtonStyle {
+    var expands = true
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.subheadline.weight(.heavy)).tracking(0.8).foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 54)
+        configuration.label.font(.subheadline.weight(.heavy)).tracking(0.8).foregroundStyle(.white).padding(.horizontal, expands ? 0 : 24)
+            .frame(maxWidth: expands ? .infinity : nil).frame(height: 54)
             .background(configuration.isPressed ? MankiPalette.deepSky : MankiPalette.sky, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
             .overlay(alignment: .bottom) { RoundedRectangle(cornerRadius: 17, style: .continuous).fill(MankiPalette.deepSky).frame(height: 4).allowsHitTesting(false) }
             .scaleEffect(configuration.isPressed ? 0.98 : 1).animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -862,10 +864,9 @@ private struct MankiPrimaryButton: ButtonStyle {
 
 private struct ReviewRatingButton: ButtonStyle {
     let color: Color
-    let expands: Bool
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.caption.weight(.heavy)).foregroundStyle(color).padding(.horizontal, expands ? 0 : 14)
-            .frame(maxWidth: expands ? .infinity : nil).frame(height: 48)
+        configuration.label.font(.caption.weight(.heavy)).foregroundStyle(color).frame(maxWidth: .infinity).frame(height: 48)
             .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(color.opacity(0.32), lineWidth: 1.5) }
             .opacity(configuration.isPressed ? 0.65 : 1)
