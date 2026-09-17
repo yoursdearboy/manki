@@ -167,6 +167,15 @@ int manki_anki_answer_card(
     size_t *out_len
 );
 
+/** Sets the card's standard Anki flag (0 for none, 1 through 7 for colors). */
+int manki_anki_set_card_flag(
+    const char *collection_path,
+    int64_t card_id,
+    uint8_t flag,
+    uint8_t **out_data,
+    size_t *out_len
+);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
