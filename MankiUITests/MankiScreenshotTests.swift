@@ -41,6 +41,11 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRedFlagCard() throws {
+        capture(fixture: "red-flag-card") { $0.images["Red flag"] }
+    }
+
+    @MainActor
     func testCardActionsMenu() throws {
         let application = launch(fixture: "review-question")
         let actions = application.buttons["Card actions"]
