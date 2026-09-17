@@ -78,6 +78,41 @@ final class RSLibViewModelTests: XCTestCase {
         await first.value
     }
 
+    func testPeriodicSyncRunsWhenNotReviewing() async {
+        var syncs = 0
+        let model = RSLibViewModel(isAuthenticated: true, loadCachedDecks: { [] }, fetchDecks: { _, _ in
+            syncs += 1
+            return []
+        }, badgeSetter: NoopBadgeSetter())
+
+        await model.restoreSession()
+        await model.periodicSync()
+
+        XCTAssertEqual(syncs, 1)
+    }
+
+    func testPeriodicSyncWaitsUntilReviewCloses() async throws {
+        let deck = try deck(id: 1, name: "Deck")
+        let card = ReviewCard(id: 10, question: "Question", answer: "Answer")
+        var syncs = 0
+        let model = RSLibViewModel(
+            decks: [deck],
+            isAuthenticated: true,
+            loadCachedDecks: { [] },
+            fetchDecks: { _, _ in syncs += 1; return [deck] },
+            fetchNextCard: { _ in card },
+            badgeSetter: NoopBadgeSetter()
+        )
+        await model.restoreSession()
+        await model.loadNextCard(in: deck)
+
+        await model.periodicSync()
+        XCTAssertEqual(syncs, 0)
+
+        await model.stopReviewing(deckID: deck.id)
+        XCTAssertEqual(syncs, 1)
+    }
+
     func testOpeningDeckDuringSyncWaitsForSyncBeforeLoadingCard() async throws {
         let deck = try deck(id: 1, name: "Deck", due: 1)
         let expectedCard = ReviewCard(id: 10, question: "Question", answer: "Answer")
