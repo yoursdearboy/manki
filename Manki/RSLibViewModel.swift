@@ -44,6 +44,42 @@ struct ReviewCard: Decodable, Identifiable, Equatable {
     let id: Int64
     let question: String
     let answer: String
+    let flag: UInt8
+
+    init(id: Int64, question: String, answer: String, flag: UInt8 = 0) {
+        self.id = id
+        self.question = question
+        self.answer = answer
+        self.flag = flag
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, question, answer, flag }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(Int64.self, forKey: .id)
+        question = try values.decode(String.self, forKey: .question)
+        answer = try values.decode(String.self, forKey: .answer)
+        flag = try values.decodeIfPresent(UInt8.self, forKey: .flag) ?? 0
+    }
+}
+
+enum CardFlag: UInt8, CaseIterable, Identifiable {
+    case none = 0, red, orange, green, blue, pink, turquoise, purple
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .none: return "No Flag"
+        case .red: return "Red"
+        case .orange: return "Orange"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .pink: return "Pink"
+        case .turquoise: return "Turquoise"
+        case .purple: return "Purple"
+        }
+    }
 }
 
 enum CardRating: Int32, CaseIterable, Identifiable {
@@ -78,6 +114,7 @@ final class RSLibViewModel: ObservableObject {
     private let fetchDecks: (String, String) throws -> [Deck]
     private let fetchNextCard: (Deck) throws -> ReviewCard?
     private let submitAnswer: (ReviewCard, Deck, CardRating, UInt32) throws -> Void
+    private let setCardFlag: (ReviewCard, CardFlag) throws -> Void
     private let badgeController: AppIconBadgeController
     private var hasRestoredSession = false
     private var isLoadingCache = false
@@ -94,6 +131,7 @@ final class RSLibViewModel: ObservableObject {
         fetchDecks: @escaping (String, String) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
         fetchNextCard: @escaping (Deck) throws -> ReviewCard? = AnkiRSLibBackend.nextCard,
         submitAnswer: @escaping (ReviewCard, Deck, CardRating, UInt32) throws -> Void = AnkiRSLibBackend.answer,
+        setCardFlag: @escaping (ReviewCard, CardFlag) throws -> Void = AnkiRSLibBackend.setFlag,
         badgeSetter: any AppIconBadgeSetting = UserNotificationBadgeSetter()
     ) {
         self.fixture = fixture
@@ -103,6 +141,7 @@ final class RSLibViewModel: ObservableObject {
         self.fetchDecks = fetchDecks
         self.fetchNextCard = fetchNextCard
         self.submitAnswer = submitAnswer
+        self.setCardFlag = setCardFlag
         badgeController = AppIconBadgeController(setter: badgeSetter)
 
         guard let fixture, fixture != .signIn else { return }
@@ -238,6 +277,23 @@ final class RSLibViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             isReviewLoading = false
+        }
+    }
+
+    func setFlag(_ flag: CardFlag, on card: ReviewCard) async {
+        guard fixture == nil else {
+            reviewCard = ReviewCard(id: card.id, question: card.question, answer: card.answer, flag: flag.rawValue)
+            return
+        }
+        errorMessage = nil
+        do {
+            try await Task.detached(priority: .userInitiated) { [setCardFlag] in
+                try setCardFlag(card, flag)
+            }.value
+            guard reviewCard?.id == card.id else { return }
+            reviewCard = ReviewCard(id: card.id, question: card.question, answer: card.answer, flag: flag.rawValue)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

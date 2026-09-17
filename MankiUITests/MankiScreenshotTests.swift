@@ -41,6 +41,20 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testCardActionsMenu() throws {
+        let application = launch(fixture: "review-question")
+        let actions = application.buttons["Card actions"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
+        tapCenter(of: actions)
+        let flagCard = application.buttons["Flag card"]
+        XCTAssertTrue(flagCard.waitForExistence(timeout: 5))
+        tapCenter(of: flagCard)
+        XCTAssertTrue(application.buttons["Red"].waitForExistence(timeout: 5))
+
+        attachScreenshots(named: "card-actions", application: application)
+    }
+
+    @MainActor
     func testTappingReviewCardRevealsAnswer() throws {
         let application = XCUIApplication()
         application.launchArguments = ["--ui-test-fixture", "review-question", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -62,7 +76,7 @@ final class MankiScreenshotTests: XCTestCase {
         let settingsAction = application.buttons["Deck settings"]
         XCTAssertTrue(settingsAction.waitForExistence(timeout: 5))
 
-        attachScreenshot(named: "deck-context-menu.png")
+        attachScreenshots(named: "deck-context-menu", application: application)
     }
 
     @MainActor
@@ -79,7 +93,7 @@ final class MankiScreenshotTests: XCTestCase {
         XCTAssertTrue(application.buttons["deck-reminder-delete-09-00"].waitForExistence(timeout: 5))
         XCTAssertTrue(application.buttons["deck-reminder-delete-18-00"].exists)
 
-        attachScreenshot(named: "deck-settings-extra-reminders.png")
+        attachScreenshots(named: "deck-settings-extra-reminders", application: application)
     }
 
     @MainActor
@@ -109,15 +123,10 @@ final class MankiScreenshotTests: XCTestCase {
 
     @MainActor
     private func capture(fixture: String, readyElement: (XCUIApplication) -> XCUIElement) {
-        let application = XCUIApplication()
-        application.launchArguments = ["--ui-test-fixture", fixture, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        application.launch()
+        let application = launch(fixture: fixture)
 
         XCTAssertTrue(readyElement(application).waitForExistence(timeout: 10), "The \(fixture) fixture did not become ready")
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "\(fixture).png"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        attachScreenshots(named: fixture, application: application)
     }
 
     @MainActor
@@ -137,9 +146,32 @@ final class MankiScreenshotTests: XCTestCase {
             XCTAssertTrue(application.sheets.staticTexts["Log out of Manki?"].waitForExistence(timeout: 5), "The logout confirmation did not appear")
         }
 
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = confirmingLogout ? "logout-confirmation.png" : "settings.png"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        attachScreenshots(named: confirmingLogout ? "logout-confirmation" : "settings", application: application)
+    }
+
+    @MainActor
+    private func launch(fixture: String) -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
+        let application = XCUIApplication()
+        application.launchArguments = ["--ui-test-fixture", fixture, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        application.launch()
+        return application
+    }
+
+    @MainActor
+    private func attachScreenshots(named name: String, application: XCUIApplication) {
+        attachScreenshot(named: "\(name)-portrait.png")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(application.wait(for: .runningForeground, timeout: 5))
+        attachScreenshot(named: "\(name)-landscape.png")
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    /// SwiftUI menu labels can have a valid accessibility frame while XCTest
+    /// still reports no synthesized hit point. Tapping the element's explicit
+    /// center avoids XCTest's failing scroll-to-visible fallback.
+    @MainActor
+    private func tapCenter(of element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 }

@@ -74,6 +74,13 @@ final class AnkiRSLibBackend {
         }
     }
 
+    static func setFlag(on card: ReviewCard, to flag: CardFlag) throws {
+        let collection = try collectionPath()
+        _ = try reviewCall { output, outputLength in
+            collection.withCString { manki_anki_set_card_flag($0, card.id, flag.rawValue, output, outputLength) }
+        }
+    }
+
     private static func collectionPath() throws -> String {
         try FileManager.default.url(
             for: .applicationSupportDirectory,
