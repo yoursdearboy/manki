@@ -171,7 +171,8 @@ final class RSLibViewModel: ObservableObject {
 
     func loadNextCard(in deck: Deck) async {
         if fixture != nil {
-            reviewCard = Self.fixtureCard
+            reviewCard = fixture == .allCaughtUp ? nil : Self.fixtureCard
+            if fixture == .allCaughtUp { completedReviewDeckID = deck.id }
             return
         }
         activeReviewDeckID = deck.id
@@ -308,6 +309,7 @@ enum UITestFixture: String {
     case deckList = "deck-list"
     case reviewQuestion = "review-question"
     case reviewAnswer = "revealed-answer"
+    case allCaughtUp = "all-caught-up"
     case cachedDecksSyncing = "cached-decks-syncing"
     case syncError = "sync-error"
 
