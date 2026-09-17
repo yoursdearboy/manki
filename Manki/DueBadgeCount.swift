@@ -16,7 +16,7 @@ enum DueBadgeCount {
         }
     }
 
-    private static func addingWithoutOverflow(_ lhs: Int, _ rhs: Int) -> Int {
+    static func addingWithoutOverflow(_ lhs: Int, _ rhs: Int) -> Int {
         guard rhs > 0, lhs <= Int.max - rhs else { return rhs > 0 ? Int.max : lhs }
         return lhs + rhs
     }

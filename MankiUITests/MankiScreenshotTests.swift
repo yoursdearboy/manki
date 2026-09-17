@@ -70,6 +70,23 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testDeckOptions() throws {
+        let application = XCUIApplication()
+        application.launchArguments = ["--ui-test-fixture", "deck-list", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        application.launch()
+
+        let optionsButton = application.buttons["Options for Spanish Essentials"]
+        XCTAssertTrue(optionsButton.waitForExistence(timeout: 10))
+        optionsButton.tap()
+        XCTAssertTrue(application.switches["Include this deck in count"].waitForExistence(timeout: 5))
+
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "deck-options.png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testRevealedAnswer() throws {
         capture(fixture: "revealed-answer") { $0.staticTexts["Buenos Aires"] }
     }

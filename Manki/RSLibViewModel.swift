@@ -313,6 +313,10 @@ final class RSLibViewModel: ObservableObject {
     private func updateBadge() async {
         await badgeController.update(decks: decks, isAuthenticated: isAuthenticated)
     }
+
+    func refreshBadge() async {
+        await updateBadge()
+    }
     static let fixtureDecks = [
         Deck(id: 10, name: "Spanish Essentials", newCount: 12, learnCount: 3, dueCount: 24),
         Deck(id: 20, name: "Human Anatomy", newCount: 5, learnCount: 0, dueCount: 18),

@@ -30,6 +30,7 @@ final class NotificationSettings: ObservableObject {
     private enum Keys {
         static let times = "dailyNotificationTimes"
         static let enabled = "dailyNotificationsEnabled"
+        static let enabledDeckIDs = "dailyNotificationDeckIDs"
     }
 
     init(center: UNUserNotificationCenter = .current(), defaults: UserDefaults = .standard) {
@@ -91,39 +92,68 @@ final class NotificationSettings: ObservableObject {
         await reschedule()
     }
 
+    func isEnabled(for deckID: Int64) -> Bool {
+        enabledDeckIDs.contains(deckID)
+    }
+
+    func setEnabled(_ enabled: Bool, for deckID: Int64) async {
+        var ids = enabledDeckIDs
+        if enabled { ids.insert(deckID) } else { ids.remove(deckID) }
+        defaults.set(ids.map(String.init), forKey: Keys.enabledDeckIDs)
+        await reschedule()
+    }
+
     private func persistTimes() {
         defaults.set(try? JSONEncoder().encode(times), forKey: Keys.times)
     }
 
     private func reschedule() async {
-        center.removePendingNotificationRequests(withIdentifiers: times.map(identifier))
+        center.removeAllPendingNotificationRequests()
         guard isEnabled else { return }
 
+        let selectedDecks = decks.filter { enabledDeckIDs.contains($0.id) }
         for time in times {
-            let content = UNMutableNotificationContent()
-            if let deck = decks.randomElement() {
-                content.title = deck.name
-                let encouragements = [
-                    "a little practice goes a long way!",
-                    "you've got this!",
-                    "make today’s knowledge stick!",
-                ]
-                let count = deck.dueCount
-                content.body = "\(count) \(count == 1 ? "card is" : "cards are") due — \(encouragements.randomElement()!)"
+            if selectedDecks.isEmpty {
+                await schedule(time: time, deck: nil)
             } else {
-                content.title = "Ready for a quick review?"
-                content.body = "Keep your learning streak shining!"
+                for deck in selectedDecks { await schedule(time: time, deck: deck) }
             }
-            content.sound = .default
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: DateComponents(hour: time.hour, minute: time.minute),
-                repeats: true
-            )
-            try? await center.add(UNNotificationRequest(identifier: identifier(time), content: content, trigger: trigger))
         }
+    }
+
+    private func schedule(time: DailyNotificationTime, deck: Deck?) async {
+        let content = UNMutableNotificationContent()
+        if let deck {
+            content.title = deck.name
+            let encouragements = [
+                "a little practice goes a long way!",
+                "you've got this!",
+                "make today’s knowledge stick!",
+            ]
+            let count = deck.dueCount
+            content.body = "\(count) \(count == 1 ? "card is" : "cards are") due — \(encouragements.randomElement()!)"
+            content.userInfo = ["deckID": String(deck.id)]
+        } else {
+            content.title = "Ready for a quick review?"
+            content.body = "Keep your learning streak shining!"
+        }
+        content.sound = .default
+        let trigger = UNCalendarNotificationTrigger(
+            dateMatching: DateComponents(hour: time.hour, minute: time.minute),
+            repeats: true
+        )
+        try? await center.add(UNNotificationRequest(identifier: identifier(time, deck: deck), content: content, trigger: trigger))
     }
 
     private func identifier(_ time: DailyNotificationTime) -> String {
         "manki.daily-reminder.\(time.id.uuidString)"
+    }
+
+    private func identifier(_ time: DailyNotificationTime, deck: Deck?) -> String {
+        identifier(time) + (deck.map { ".\($0.id)" } ?? "")
+    }
+
+    private var enabledDeckIDs: Set<Int64> {
+        Set(defaults.stringArray(forKey: Keys.enabledDeckIDs)?.compactMap(Int64.init) ?? [])
     }
 }
