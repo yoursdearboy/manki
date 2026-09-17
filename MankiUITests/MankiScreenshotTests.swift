@@ -53,22 +53,46 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
-    func testDeckOptions() throws {
+    func testDeckContextMenu() throws {
         let application = XCUIApplication()
         application.launchArguments = ["--ui-test-fixture", "deck-list", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         application.launch()
 
-        let deck = application.staticTexts["Spanish Essentials"]
-        XCTAssertTrue(deck.waitForExistence(timeout: 10))
-        deck.press(forDuration: 1)
+        openDeckContextMenu(in: application)
+        let settingsAction = application.buttons["Deck settings"]
+        XCTAssertTrue(settingsAction.waitForExistence(timeout: 5))
+
+        attachScreenshot(named: "deck-context-menu.png")
+    }
+
+    @MainActor
+    func testDeckSettingsWithExtraReminders() throws {
+        let application = XCUIApplication()
+        application.launchArguments = ["--ui-test-fixture", "deck-list", "--ui-test-deck-reminders", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        application.launch()
+
+        openDeckContextMenu(in: application)
         let settingsAction = application.buttons["Deck settings"]
         XCTAssertTrue(settingsAction.waitForExistence(timeout: 5))
         settingsAction.tap()
         XCTAssertTrue(application.switches["Include this deck in count"].waitForExistence(timeout: 5))
-        XCTAssertTrue(application.staticTexts["Review card size"].exists)
+        XCTAssertTrue(application.buttons["deck-reminder-delete-09-00"].waitForExistence(timeout: 5))
+        XCTAssertTrue(application.buttons["deck-reminder-delete-18-00"].exists)
 
+        attachScreenshot(named: "deck-settings-extra-reminders.png")
+    }
+
+    @MainActor
+    private func openDeckContextMenu(in application: XCUIApplication) {
+        let deck = application.staticTexts["Spanish Essentials"]
+        XCTAssertTrue(deck.waitForExistence(timeout: 10))
+        deck.press(forDuration: 1)
+    }
+
+    @MainActor
+    private func attachScreenshot(named name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "deck-options.png"
+        attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
     }

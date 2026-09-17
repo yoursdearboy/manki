@@ -366,81 +366,109 @@ private struct DeckSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("App icon") {
-                Toggle("Include this deck in count", isOn: $contributesToBadge)
-                    .onChange(of: contributesToBadge) { _, included in
-                        BadgePreferences().setIncludesDeck(included, deckID: deck.id)
-                        Task { await model.refreshBadge() }
-                    }
-            }
-            Section("Notifications") {
-                Toggle("Remind me to study this deck", isOn: $sendsReminders)
-                    .onChange(of: sendsReminders) { _, enabled in
-                        Task { await notifications.setEnabled(enabled, for: deck.id) }
-                    }
-                if sendsReminders {
-                    ForEach(reminderTimes) { time in
-                        HStack {
-                            DatePicker(
-                                "Reminder time",
-                                selection: Binding(
-                                    get: { time.date },
-                                    set: { date in
-                                        Task {
-                                            await notifications.updateTime(id: time.id, date: date, for: deck.id)
-                                            reminderTimes = notifications.times(for: deck.id)
-                                        }
-                                    }
-                                ),
-                                displayedComponents: .hourAndMinute
-                            )
-                            .labelsHidden()
-                            Spacer()
-                            Button(role: .destructive) {
-                                Task {
-                                    await notifications.removeTime(id: time.id, for: deck.id)
-                                    reminderTimes = notifications.times(for: deck.id)
-                                }
-                            } label: {
-                                Image(systemName: "trash")
+        ZStack {
+            MankiPalette.mist.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Choose how this deck contributes to Manki and when it reminds you to study.")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(MankiPalette.softInk)
+
+                    SettingsSection(title: "APP ICON COUNT") {
+                        Toggle("Include this deck in count", isOn: $contributesToBadge)
+                            .font(.system(.body, design: .rounded, weight: .bold))
+                            .onChange(of: contributesToBadge) { _, included in
+                                BadgePreferences().setIncludesDeck(included, deckID: deck.id)
+                                Task { await model.refreshBadge() }
                             }
+                    }
+
+                    SettingsSection(title: "EXTRA NOTIFICATIONS") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Toggle("Remind me to study this deck", isOn: $sendsReminders)
+                                .font(.system(.body, design: .rounded, weight: .bold))
+                                .onChange(of: sendsReminders) { _, enabled in
+                                    Task { await notifications.setEnabled(enabled, for: deck.id) }
+                                }
+                            if sendsReminders {
+                                ForEach(reminderTimes) { time in
+                                    HStack {
+                                        DatePicker(
+                                            "Reminder time",
+                                            selection: Binding(
+                                                get: { time.date },
+                                                set: { date in
+                                                    Task {
+                                                        await notifications.updateTime(id: time.id, date: date, for: deck.id)
+                                                        reminderTimes = notifications.times(for: deck.id)
+                                                    }
+                                                }
+                                            ),
+                                            displayedComponents: .hourAndMinute
+                                        )
+                                        .labelsHidden()
+                                        Spacer()
+                                        Button(role: .destructive) {
+                                            Task {
+                                                await notifications.removeTime(id: time.id, for: deck.id)
+                                                reminderTimes = notifications.times(for: deck.id)
+                                            }
+                                        } label: {
+                                            Image(systemName: "trash")
+                                        }
+                                        .accessibilityLabel("Delete reminder at \(time.date.formatted(date: .omitted, time: .shortened))")
+                                        .accessibilityIdentifier(time.deleteButtonAccessibilityIdentifier)
+                                    }
+                                }
+                                Button {
+                                    Task {
+                                        await notifications.addTime(for: deck.id)
+                                        reminderTimes = notifications.times(for: deck.id)
+                                    }
+                                } label: {
+                                    Label("Add reminder", systemImage: "plus.circle.fill")
+                                        .font(.system(.body, design: .rounded, weight: .bold))
+                                }
+                            }
+                            Text("These are additional reminders for this deck, separate from the app-wide reminder schedule.")
+                                .font(.footnote)
+                                .foregroundStyle(MankiPalette.softInk)
                         }
                     }
-                    Button {
-                        Task {
-                            await notifications.addTime(for: deck.id)
-                            reminderTimes = notifications.times(for: deck.id)
+
+                    SettingsSection(title: "REVIEW") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Review card size")
+                                .font(.system(.body, design: .rounded, weight: .bold))
+                            Slider(value: $cardHeight, in: ReviewCardSettings.heightRange, step: 0.05) {
+                                Text("Review card height")
+                            } minimumValueLabel: {
+                                Text("30%")
+                            } maximumValueLabel: {
+                                Text("80%")
+                            }
+                            .onChange(of: cardHeight) { _, height in
+                                ReviewCardSettings().setHeight(height, for: deck.id)
+                            }
+                            Text(cardHeight, format: .percent.precision(.fractionLength(0)))
+                                .font(.footnote.weight(.bold))
+                                .foregroundStyle(MankiPalette.deepSky)
                         }
-                    } label: {
-                        Label("Add reminder", systemImage: "plus.circle.fill")
                     }
                 }
-                Text("These are additional reminders for this deck, separate from the app-wide reminder schedule.")
-                    .font(.footnote)
-                    .foregroundStyle(MankiPalette.softInk)
-            }
-            Section("Review") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Review card size")
-                    Slider(value: $cardHeight, in: ReviewCardSettings.heightRange, step: 0.05) {
-                        Text("Review card height")
-                    } minimumValueLabel: {
-                        Text("30%")
-                    } maximumValueLabel: {
-                        Text("80%")
-                    }
-                    .onChange(of: cardHeight) { _, height in
-                        ReviewCardSettings().setHeight(height, for: deck.id)
-                    }
-                    Text(cardHeight, format: .percent.precision(.fractionLength(0)))
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(MankiPalette.deepSky)
-                }
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 30)
             }
         }
         .navigationTitle(deck.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private extension DailyNotificationTime {
+    var deleteButtonAccessibilityIdentifier: String {
+        String(format: "deck-reminder-delete-%02d-%02d", hour, minute)
     }
 }
 

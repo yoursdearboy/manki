@@ -25,6 +25,8 @@ final class NotificationSettings: ObservableObject {
 
     private let center: UNUserNotificationCenter
     private let defaults: UserDefaults
+    private let fixtureDeckID: Int64?
+    private let fixtureDeckTimes: [DailyNotificationTime]
     private var decks: [Deck] = []
 
     private enum Keys {
@@ -37,6 +39,16 @@ final class NotificationSettings: ObservableObject {
     init(center: UNUserNotificationCenter = .current(), defaults: UserDefaults = .standard) {
         self.center = center
         self.defaults = defaults
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-deck-reminders") {
+            fixtureDeckID = 10
+            fixtureDeckTimes = [
+                DailyNotificationTime(hour: 9, minute: 0),
+                DailyNotificationTime(hour: 18, minute: 0),
+            ]
+        } else {
+            fixtureDeckID = nil
+            fixtureDeckTimes = []
+        }
         if let data = defaults.data(forKey: Keys.times),
            let saved = try? JSONDecoder().decode([DailyNotificationTime].self, from: data) {
             times = saved
@@ -94,7 +106,7 @@ final class NotificationSettings: ObservableObject {
     }
 
     func isEnabled(for deckID: Int64) -> Bool {
-        enabledDeckIDs.contains(deckID)
+        fixtureDeckID == deckID || enabledDeckIDs.contains(deckID)
     }
 
     func setEnabled(_ enabled: Bool, for deckID: Int64) async {
@@ -119,6 +131,9 @@ final class NotificationSettings: ObservableObject {
     }
 
     func times(for deckID: Int64) -> [DailyNotificationTime] {
+        if fixtureDeckID == deckID {
+            return fixtureDeckTimes
+        }
         guard let data = defaults.data(forKey: deckTimesKey(for: deckID)),
               let saved = try? JSONDecoder().decode([DailyNotificationTime].self, from: data) else {
             return [DailyNotificationTime(hour: 9, minute: 0)]
