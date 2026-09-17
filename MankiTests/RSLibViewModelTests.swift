@@ -207,6 +207,31 @@ final class RSLibViewModelTests: XCTestCase {
         XCTAssertEqual(model.decks, [refreshedDeck])
     }
 
+    func testSettingFlagPersistsAndUpdatesVisibleCard() async throws {
+        let deck = try deck(id: 1, name: "Deck")
+        let card = ReviewCard(id: 10, question: "Question", answer: "Answer")
+        var persistedFlag: CardFlag?
+        let model = RSLibViewModel(
+            isAuthenticated: true,
+            fetchNextCard: { _ in card },
+            setCardFlag: { _, flag in persistedFlag = flag },
+            badgeSetter: NoopBadgeSetter()
+        )
+        await model.loadNextCard(in: deck)
+
+        await model.setFlag(.purple, on: card)
+
+        XCTAssertEqual(persistedFlag, .purple)
+        XCTAssertEqual(model.reviewCard?.flag, CardFlag.purple.rawValue)
+    }
+
+    func testReviewCardDecodesMissingFlagAsNone() throws {
+        let data = try JSONSerialization.data(withJSONObject: ["id": 10, "question": "Question", "answer": "Answer"])
+        let card = try JSONDecoder().decode(ReviewCard.self, from: data)
+
+        XCTAssertEqual(card.flag, CardFlag.none.rawValue)
+    }
+
     private func deck(id: Int64, name: String, new: Int = 0, learn: Int = 0, due: Int = 0) throws -> Deck {
         let data = try JSONSerialization.data(withJSONObject: ["id": id, "name": name, "new": new, "learn": learn, "due": due])
         return try JSONDecoder().decode(Deck.self, from: data)

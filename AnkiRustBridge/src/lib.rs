@@ -21,6 +21,7 @@ use anki_proto::{
         rendered_template_node::Value as RenderedNodeValue, RenderCardResponse,
         RenderExistingCardRequest,
     },
+    cards::SetFlagRequest,
     collection::{CloseCollectionRequest, OpenCollectionRequest},
     decks::{DeckId, DeckNames, DeckTreeNode, DeckTreeRequest, GetDeckNamesRequest},
     scheduler::{card_answer::Rating, CardAnswer, GetQueuedCardsRequest, QueuedCards},
@@ -41,6 +42,7 @@ const FETCH_ERROR: c_int = 1;
 const SERVICE_SYNC: u32 = 1;
 const SERVICE_COLLECTION: u32 = 3;
 const SERVICE_DECKS: u32 = 7;
+const SERVICE_CARDS: u32 = 5;
 const OPEN_COLLECTION: u32 = 0;
 const CLOSE_COLLECTION: u32 = 1;
 const SYNC_LOGIN: u32 = 3;
@@ -49,6 +51,7 @@ const FULL_UPLOAD_OR_DOWNLOAD: u32 = 6;
 const DECK_TREE: u32 = 4;
 const GET_DECK_NAMES: u32 = 13;
 const SET_CURRENT_DECK: u32 = 22;
+const SET_FLAG: u32 = 4;
 const GET_QUEUED_CARDS: u32 = 3;
 const ANSWER_CARD: u32 = 4;
 const RENDER_EXISTING_CARD: u32 = 6;
@@ -301,10 +304,8 @@ pub unsafe extern "C" fn manki_anki_get_next_card(
         let Some(card) = queued.cards.into_iter().next() else {
             return Ok(b"null".to_vec());
         };
-        let card_id = card
-            .card
-            .ok_or("scheduler returned a card without an id")?
-            .id;
+        let card = card.card.ok_or("scheduler returned a card without an id")?;
+        let card_id = card.id;
         let rendered: RenderCardResponse = call(
             backend,
             SERVICE_CARD_RENDERING,
@@ -319,6 +320,7 @@ pub unsafe extern "C" fn manki_anki_get_next_card(
             "id": card_id,
             "question": rendered_text(rendered.question_nodes),
             "answer": rendered_text(rendered.answer_nodes),
+            "flag": card.flags & 7,
         }))
         .map_err(|error| format!("could not encode card: {error}"))
     })
@@ -365,6 +367,32 @@ pub unsafe extern "C" fn manki_anki_answer_card(
                 rating: rating as i32,
                 answered_at_millis: now_millis(),
                 milliseconds_taken,
+            },
+        )?;
+        Ok(b"{}".to_vec())
+    })
+}
+
+/// Applies one of Anki's standard colored flags to a card.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_set_card_flag(
+    collection_path: *const c_char,
+    card_id: i64,
+    flag: u8,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    review_operation(collection_path, out_data, out_len, |backend| {
+        if flag > 7 {
+            return Err("invalid card flag".into());
+        }
+        let _ = call::<_, anki_proto::collection::OpChangesWithCount>(
+            backend,
+            SERVICE_CARDS,
+            SET_FLAG,
+            SetFlagRequest {
+                card_ids: vec![card_id],
+                flag: flag.into(),
             },
         )?;
         Ok(b"{}".to_vec())

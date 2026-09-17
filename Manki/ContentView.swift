@@ -580,6 +580,28 @@ private struct ReviewerView: View {
                 }
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if let card = model.reviewCard {
+                        Menu {
+                            Menu {
+                                ForEach(CardFlag.allCases) { flag in
+                                    Button {
+                                        Task { await model.setFlag(flag, on: card) }
+                                    } label: {
+                                        Label(flag.title, systemImage: card.flag == flag.rawValue ? "checkmark" : "flag.fill")
+                                    }
+                                }
+                            } label: {
+                                Label("Flag card", systemImage: "flag.fill")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("Card actions")
+                    }
+                }
+            }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onDisappear {
                 model.stopReviewing(deckID: deck.id)
