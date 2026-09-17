@@ -192,11 +192,14 @@ final class RSLibViewModel: ObservableObject {
         do {
             let card = try await Task.detached(priority: .userInitiated) { [fetchNextCard] in
                 let card = try fetchNextCard(deck)
+                guard card == nil,
+                      deck.newCount > 0 || deck.learnCount > 0 || deck.dueCount > 0 else {
+                    return card
+                }
                 // The deck list and scheduler queue are loaded by separate
-                // rslib calls. A post-sync deck snapshot can report zero
-                // counts briefly even when the queue has a card, so retry an
-                // empty queue once before presenting "all caught up".
-                return card ?? (try fetchNextCard(deck))
+                // rslib calls. Retry once when their snapshots briefly differ
+                // instead of presenting a false "all caught up" state.
+                return try fetchNextCard(deck)
             }.value
             guard reviewRequestID == requestID, activeReviewDeckID == deck.id else { return }
             reviewCard = card
@@ -261,17 +264,23 @@ final class RSLibViewModel: ObservableObject {
         syncErrorMessage = nil
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = password
+        var didSync = false
         do {
             let fetched = try await Task.detached(priority: .userInitiated) { [fetchDecks] in
                 try fetchDecks(username, password)
             }.value
             decks = sorted(fetched)
             lastSynced = .now
+            didSync = true
             if saveCredentialsOnSuccess { try credentials.save(username: username, password: password) }
             await updateBadge()
         } catch {
             syncErrorMessage = error.localizedDescription
         }
+        // Reopen the collection to refresh its scheduler snapshot before
+        // resuming a reviewer that was opened during sync. This is the same
+        // refresh that makes cards available after returning to the deck list.
+        if didSync { await loadCache() }
         isSyncing = false
         await resumeReviewAfterSync()
     }

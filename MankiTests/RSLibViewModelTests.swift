@@ -83,10 +83,11 @@ final class RSLibViewModelTests: XCTestCase {
         let expectedCard = ReviewCard(id: 10, question: "Question", answer: "Answer")
         let gate = DispatchSemaphore(value: 0)
         let syncStarted = expectation(description: "background sync started")
+        var cacheLoads = 0
         let model = RSLibViewModel(
             decks: [deck],
             isAuthenticated: true,
-            loadCachedDecks: { [] },
+            loadCachedDecks: { cacheLoads += 1; return [deck] },
             fetchDecks: { _, _ in
                 syncStarted.fulfill()
                 gate.wait()
@@ -107,6 +108,7 @@ final class RSLibViewModelTests: XCTestCase {
         gate.signal()
         await sync.value
 
+        XCTAssertEqual(cacheLoads, 1)
         XCTAssertEqual(model.reviewCard, expectedCard)
         XCTAssertNil(model.completedReviewDeckID)
     }
@@ -139,8 +141,8 @@ final class RSLibViewModelTests: XCTestCase {
         XCTAssertEqual(model.completedReviewDeckID, secondDeck.id)
     }
 
-    func testEmptyQueueRetriesWhenDeckSnapshotHasNoDueCount() async throws {
-        let deck = try deck(id: 1, name: "Deck")
+    func testDueDeckRetriesAnUnexpectedEmptyQueue() async throws {
+        let deck = try deck(id: 1, name: "Deck", due: 1)
         let expectedCard = ReviewCard(id: 10, question: "Question", answer: "Answer")
         var attempts = 0
         let model = RSLibViewModel(
