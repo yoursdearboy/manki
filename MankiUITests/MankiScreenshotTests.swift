@@ -53,32 +53,19 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
-    func testDeckReviewSettings() throws {
-        let application = XCUIApplication()
-        application.launchArguments = ["--ui-test-fixture", "review-question", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        application.launch()
-
-        let settingsButton = application.buttons["Deck settings"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
-        settingsButton.tap()
-        XCTAssertTrue(application.staticTexts["Review card size"].waitForExistence(timeout: 5))
-
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "deck-review-settings.png"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-    }
-
-    @MainActor
     func testDeckOptions() throws {
         let application = XCUIApplication()
         application.launchArguments = ["--ui-test-fixture", "deck-list", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         application.launch()
 
-        let optionsButton = application.buttons["Options for Spanish Essentials"]
-        XCTAssertTrue(optionsButton.waitForExistence(timeout: 10))
-        optionsButton.tap()
+        let deck = application.staticTexts["Spanish Essentials"]
+        XCTAssertTrue(deck.waitForExistence(timeout: 10))
+        deck.press(forDuration: 1)
+        let settingsAction = application.buttons["Deck settings"]
+        XCTAssertTrue(settingsAction.waitForExistence(timeout: 5))
+        settingsAction.tap()
         XCTAssertTrue(application.switches["Include this deck in count"].waitForExistence(timeout: 5))
+        XCTAssertTrue(application.staticTexts["Review card size"].exists)
 
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "deck-options.png"

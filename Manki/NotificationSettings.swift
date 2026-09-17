@@ -31,6 +31,7 @@ final class NotificationSettings: ObservableObject {
         static let times = "dailyNotificationTimes"
         static let enabled = "dailyNotificationsEnabled"
         static let enabledDeckIDs = "dailyNotificationDeckIDs"
+        static let deckTimesPrefix = "deckNotificationTimes."
     }
 
     init(center: UNUserNotificationCenter = .current(), defaults: UserDefaults = .standard) {
@@ -88,7 +89,7 @@ final class NotificationSettings: ObservableObject {
     }
 
     func updateDecks(_ decks: [Deck]) async {
-        self.decks = decks.filter { $0.contributesToBadge && $0.dueCount > 0 }
+        self.decks = decks.filter { $0.dueCount > 0 }
         await reschedule()
     }
 
@@ -97,9 +98,55 @@ final class NotificationSettings: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool, for deckID: Int64) async {
+        if enabled {
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .sound])
+                guard granted else {
+                    permissionDenied = true
+                    return
+                }
+            } catch {
+                permissionDenied = true
+                return
+            }
+        }
+
+        permissionDenied = false
         var ids = enabledDeckIDs
         if enabled { ids.insert(deckID) } else { ids.remove(deckID) }
         defaults.set(ids.map(String.init), forKey: Keys.enabledDeckIDs)
+        await reschedule()
+    }
+
+    func times(for deckID: Int64) -> [DailyNotificationTime] {
+        guard let data = defaults.data(forKey: deckTimesKey(for: deckID)),
+              let saved = try? JSONDecoder().decode([DailyNotificationTime].self, from: data) else {
+            return [DailyNotificationTime(hour: 9, minute: 0)]
+        }
+        return saved
+    }
+
+    func addTime(for deckID: Int64) async {
+        var deckTimes = times(for: deckID)
+        deckTimes.append(DailyNotificationTime(hour: 18, minute: 0))
+        persist(deckTimes, for: deckID)
+        await reschedule()
+    }
+
+    func updateTime(id: UUID, date: Date, for deckID: Int64) async {
+        var deckTimes = times(for: deckID)
+        guard let index = deckTimes.firstIndex(where: { $0.id == id }) else { return }
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        deckTimes[index].hour = components.hour ?? 9
+        deckTimes[index].minute = components.minute ?? 0
+        persist(deckTimes, for: deckID)
+        await reschedule()
+    }
+
+    func removeTime(id: UUID, for deckID: Int64) async {
+        var deckTimes = times(for: deckID)
+        deckTimes.removeAll { $0.id == id }
+        persist(deckTimes, for: deckID)
         await reschedule()
     }
 
@@ -107,16 +154,21 @@ final class NotificationSettings: ObservableObject {
         defaults.set(try? JSONEncoder().encode(times), forKey: Keys.times)
     }
 
+    private func persist(_ times: [DailyNotificationTime], for deckID: Int64) {
+        defaults.set(try? JSONEncoder().encode(times), forKey: deckTimesKey(for: deckID))
+    }
+
     private func reschedule() async {
         center.removeAllPendingNotificationRequests()
-        guard isEnabled else { return }
-
-        let selectedDecks = decks.filter { enabledDeckIDs.contains($0.id) }
-        for time in times {
-            if selectedDecks.isEmpty {
+        if isEnabled {
+            for time in times {
                 await schedule(time: time, deck: nil)
-            } else {
-                for deck in selectedDecks { await schedule(time: time, deck: deck) }
+            }
+        }
+
+        for deck in decks where enabledDeckIDs.contains(deck.id) {
+            for time in times(for: deck.id) {
+                await schedule(time: time, deck: deck)
             }
         }
     }
@@ -155,5 +207,9 @@ final class NotificationSettings: ObservableObject {
 
     private var enabledDeckIDs: Set<Int64> {
         Set(defaults.stringArray(forKey: Keys.enabledDeckIDs)?.compactMap(Int64.init) ?? [])
+    }
+
+    private func deckTimesKey(for deckID: Int64) -> String {
+        Keys.deckTimesPrefix + String(deckID)
     }
 }
