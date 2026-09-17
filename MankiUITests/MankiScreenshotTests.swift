@@ -41,6 +41,35 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testTappingReviewCardRevealsAnswer() throws {
+        let application = XCUIApplication()
+        application.launchArguments = ["--ui-test-fixture", "review-question", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        application.launch()
+
+        let question = application.staticTexts["What is the capital of Argentina?"]
+        XCTAssertTrue(question.waitForExistence(timeout: 10))
+        question.tap()
+        XCTAssertTrue(application.staticTexts["Buenos Aires"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testDeckReviewSettings() throws {
+        let application = XCUIApplication()
+        application.launchArguments = ["--ui-test-fixture", "review-question", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        application.launch()
+
+        let settingsButton = application.buttons["Deck settings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.tap()
+        XCTAssertTrue(application.staticTexts["Review card size"].waitForExistence(timeout: 5))
+
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "deck-review-settings.png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testRevealedAnswer() throws {
         capture(fixture: "revealed-answer") { $0.staticTexts["Buenos Aires"] }
     }

@@ -18,6 +18,7 @@
 		A00000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017 /* Assets.xcassets */; };
 		B00000000000000000000001 /* MankiScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000011 /* MankiScreenshotTests.swift */; };
 		F48C0B2EDA116B8BCA003487 /* DueBadgeCount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D27E3A142163CBFC912CC26 /* DueBadgeCount.swift */; };
+		C00000000000000000000001 /* ReviewCardSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000011 /* ReviewCardSettings.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +43,7 @@
 		3960C537EC19607ABFAFFAF9 /* RSLibViewModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RSLibViewModelTests.swift; sourceTree = "<group>"; };
 		4D27E3A142163CBFC912CC26 /* DueBadgeCount.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DueBadgeCount.swift; sourceTree = "<group>"; };
 		9253154316A3B2BED8886A7B /* AppIconBadgeController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppIconBadgeController.swift; sourceTree = "<group>"; };
+		C00000000000000000000011 /* ReviewCardSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewCardSettings.swift; sourceTree = "<group>"; };
 		A00000000000000000000010 /* Manki.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Manki.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000011 /* MankiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MankiApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -120,6 +122,7 @@
 				A00000000000000000000017 /* Assets.xcassets */,
 				9253154316A3B2BED8886A7B /* AppIconBadgeController.swift */,
 				4D27E3A142163CBFC912CC26 /* DueBadgeCount.swift */,
+				C00000000000000000000011 /* ReviewCardSettings.swift */,
 			);
 			path = Manki;
 			sourceTree = "<group>";
@@ -268,6 +271,7 @@
 				A00000000000000000000004 /* AnkiRSLibBackend.swift in Sources */,
 				6139E278B62B15079F2D4BA0 /* AppIconBadgeController.swift in Sources */,
 				F48C0B2EDA116B8BCA003487 /* DueBadgeCount.swift in Sources */,
+				C00000000000000000000001 /* ReviewCardSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
