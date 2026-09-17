@@ -36,6 +36,8 @@ struct ContentView: View {
                 NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0]) }
             case .reviewAnswer:
                 NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], initiallyShowingAnswer: true) }
+            case .allCaughtUp:
+                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0]) }
             default:
                 if model.isAuthenticated { decksScreen } else { signInScreen }
             }
@@ -82,6 +84,7 @@ struct ContentView: View {
                         }
                     }
                     .scrollIndicators(.hidden).refreshable { await model.sync() }
+                    .onAppear { Task { await model.deckListDidAppear() } }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -378,7 +381,9 @@ private struct ReviewerView: View {
             MankiPalette.mist.ignoresSafeArea()
             VStack(spacing: 18) {
                 Text(deck.name).font(.caption.weight(.bold)).foregroundStyle(MankiPalette.deepSky).textCase(.uppercase).tracking(1.2).lineLimit(1)
-                if model.isReviewLoading && model.reviewCard == nil {
+                if model.isSyncing && model.reviewCard == nil {
+                    ProgressView("Syncing your collection…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if model.isReviewLoading && model.reviewCard == nil {
                     ProgressView("Finding your next card…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let card = model.reviewCard {
                     reviewContent(card)
@@ -392,6 +397,10 @@ private struct ReviewerView: View {
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
+            .onDisappear {
+                model.stopReviewing(deckID: deck.id)
+                Task { await model.refreshDueCounts() }
+            }
     }
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {

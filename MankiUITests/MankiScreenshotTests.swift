@@ -46,6 +46,11 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testAllCaughtUpStaysInReviewer() throws {
+        capture(fixture: "all-caught-up") { $0.staticTexts["all caught up"] }
+    }
+
+    @MainActor
     private func capture(fixture: String, readyElement: (XCUIApplication) -> XCUIElement) {
         let application = XCUIApplication()
         application.launchArguments = ["--ui-test-fixture", fixture, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
