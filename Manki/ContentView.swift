@@ -17,6 +17,23 @@ private enum MankiPalette {
     static let reviewEasy = Color(red: 0.20, green: 0.62, blue: 0.38)
 }
 
+private extension CardFlag {
+    var color: Color {
+        switch self {
+        case .none: return .secondary
+        case .red: return .red
+        case .orange: return .orange
+        case .green: return .green
+        case .blue: return .blue
+        case .pink: return .pink
+        case .turquoise: return .cyan
+        case .purple: return .purple
+        }
+    }
+
+    var systemImage: String { self == .none ? "flag.slash" : "flag.fill" }
+}
+
 struct ContentView: View {
     @StateObject private var model: RSLibViewModel
     @StateObject private var notifications = NotificationSettings()
@@ -593,8 +610,18 @@ private struct ReviewerView: View {
                                     Button {
                                         Task { await model.setFlag(flag, on: card) }
                                     } label: {
-                                        Label(flag.title, systemImage: card.flag == flag.rawValue ? "checkmark" : "flag.fill")
+                                        HStack {
+                                            Label {
+                                                Text(flag.title)
+                                            } icon: {
+                                                Image(systemName: flag.systemImage).foregroundStyle(flag.color)
+                                            }
+                                            if card.flag == flag.rawValue {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
                                     }
+                                    .tint(flag.color)
                                 }
                             } label: {
                                 Label("Flag card", systemImage: "flag.fill")
@@ -639,6 +666,15 @@ private struct ReviewerView: View {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(swipeRating.map(color(for:)) ?? MankiPalette.sky.opacity(0.18), lineWidth: swipeRating == nil ? 1.5 : 5)
                 }
+                .overlay(alignment: .topTrailing) {
+                    if let flag = CardFlag(rawValue: card.flag), flag != .none {
+                        Image(systemName: flag.systemImage)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(flag.color)
+                            .padding(24)
+                            .accessibilityLabel("\(flag.title) flag")
+                    }
+                }
                 .shadow(color: swipeRating.map { color(for: $0).opacity(0.48) } ?? .clear, radius: 20)
                 .offset(cardOffset)
                 .rotationEffect(.degrees(Double(cardOffset.width / 22)))
@@ -653,7 +689,12 @@ private struct ReviewerView: View {
                         ForEach(CardRating.allCases) { rating in
                             Button(rating.title) {
                                 Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
-                            }.buttonStyle(ReviewRatingButton(color: color(for: rating))).disabled(model.isReviewLoading)
+                            }
+                            .buttonStyle(ReviewRatingButton(
+                                color: color(for: rating),
+                                expands: geometry.size.width <= geometry.size.height
+                            ))
+                            .disabled(model.isReviewLoading)
                         }
                     }
                 } else { Button("SHOW ANSWER") { showingAnswer = true }.buttonStyle(MankiPrimaryButton()) }
@@ -821,8 +862,10 @@ private struct MankiPrimaryButton: ButtonStyle {
 
 private struct ReviewRatingButton: ButtonStyle {
     let color: Color
+    let expands: Bool
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.caption.weight(.heavy)).foregroundStyle(color).frame(maxWidth: .infinity).frame(height: 48)
+        configuration.label.font(.caption.weight(.heavy)).foregroundStyle(color).padding(.horizontal, expands ? 0 : 14)
+            .frame(maxWidth: expands ? .infinity : nil).frame(height: 48)
             .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(color.opacity(0.32), lineWidth: 1.5) }
             .opacity(configuration.isPressed ? 0.65 : 1)

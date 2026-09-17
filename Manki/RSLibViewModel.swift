@@ -151,8 +151,8 @@ final class RSLibViewModel: ObservableObject {
         lastSynced = Date(timeIntervalSince1970: 1_700_000_000)
         if fixture == .cachedDecksSyncing { isSyncing = true }
         if fixture == .syncError { syncErrorMessage = "You appear to be offline." }
-        if fixture == .reviewQuestion || fixture == .reviewAnswer {
-            reviewCard = Self.fixtureCard
+        if fixture == .reviewQuestion || fixture == .reviewAnswer || fixture == .redFlagCard {
+            reviewCard = fixture == .redFlagCard ? Self.redFlagFixtureCard : Self.fixtureCard
         }
     }
 
@@ -216,7 +216,11 @@ final class RSLibViewModel: ObservableObject {
 
     func loadNextCard(in deck: Deck) async {
         if fixture != nil {
-            reviewCard = fixture == .allCaughtUp ? nil : Self.fixtureCard
+            if fixture == .allCaughtUp {
+                reviewCard = nil
+            } else {
+                reviewCard = fixture == .redFlagCard ? Self.redFlagFixtureCard : Self.fixtureCard
+            }
             if fixture == .allCaughtUp { completedReviewDeckID = deck.id }
             return
         }
@@ -393,6 +397,13 @@ final class RSLibViewModel: ObservableObject {
         question: "What is the capital of Argentina?",
         answer: "What is the capital of Argentina?<hr id=answer><b>Buenos Aires</b>"
     )
+
+    static let redFlagFixtureCard = ReviewCard(
+        id: fixtureCard.id,
+        question: fixtureCard.question,
+        answer: fixtureCard.answer,
+        flag: CardFlag.red.rawValue
+    )
 }
 
 enum UITestFixture: String {
@@ -400,6 +411,7 @@ enum UITestFixture: String {
     case deckList = "deck-list"
     case reviewQuestion = "review-question"
     case reviewAnswer = "revealed-answer"
+    case redFlagCard = "red-flag-card"
     case allCaughtUp = "all-caught-up"
     case cachedDecksSyncing = "cached-decks-syncing"
     case syncError = "sync-error"
