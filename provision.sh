@@ -1,12 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <profile.mobileprovision>"
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo "Usage: $0 <profile.mobileprovision> [local.ipa]"
+  echo "Omit local.ipa to download the latest unsigned IPA from GitHub Actions."
   exit 1
 fi
 
 PROFILE="$1"
+LOCAL_IPA="${2:-}"
 REPOSITORY="yoursdearboy/manki"
 # This is the Actions artifact label. GitHub downloads its contents as a ZIP.
 ARTIFACT_NAME="Manki-unsigned-iphone"
@@ -14,29 +16,48 @@ ARTIFACT_NAME="Manki-unsigned-iphone"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-if ! command -v gh >/dev/null 2>&1; then
-  echo "ERROR: GitHub CLI (gh) is required to download the build artifact"
-  exit 1
+if [ -n "$LOCAL_IPA" ]; then
+  if [ ! -f "$LOCAL_IPA" ]; then
+    echo "ERROR: Local IPA does not exist or is not a file: $LOCAL_IPA"
+    exit 1
+  fi
+
+  case "$LOCAL_IPA" in
+    *.ipa) ;;
+    *)
+      echo "ERROR: Local IPA must have a .ipa extension: $LOCAL_IPA"
+      exit 1
+      ;;
+  esac
+
+  IPA="$LOCAL_IPA"
+  echo "==> Using local IPA"
+  echo "IPA: $IPA"
+else
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "ERROR: GitHub CLI (gh) is required to download the build artifact"
+    exit 1
+  fi
+
+  echo "==> Downloading latest unsigned IPA"
+  echo "Repository: $REPOSITORY"
+  echo "Artifact: $ARTIFACT_NAME"
+
+  # With no run ID, `gh run download` selects the latest successful workflow run.
+  gh run download \
+    --repo "$REPOSITORY" \
+    --name "$ARTIFACT_NAME" \
+    --dir "$TMP/artifact"
+
+  IPA=$(find "$TMP/artifact" -type f -name '*.ipa' -print -quit)
+
+  if [ -z "$IPA" ]; then
+    echo "ERROR: Artifact $ARTIFACT_NAME did not contain an IPA"
+    exit 1
+  fi
+
+  echo "Downloaded IPA: $IPA"
 fi
-
-echo "==> Downloading latest unsigned IPA"
-echo "Repository: $REPOSITORY"
-echo "Artifact: $ARTIFACT_NAME"
-
-# With no run ID, `gh run download` selects the latest successful workflow run.
-gh run download \
-  --repo "$REPOSITORY" \
-  --name "$ARTIFACT_NAME" \
-  --dir "$TMP/artifact"
-
-IPA=$(find "$TMP/artifact" -type f -name '*.ipa' -print -quit)
-
-if [ -z "$IPA" ]; then
-  echo "ERROR: Artifact $ARTIFACT_NAME did not contain an IPA"
-  exit 1
-fi
-
-echo "Downloaded IPA: $IPA"
 
 
 echo "==> Finding Apple Development signing identity"
