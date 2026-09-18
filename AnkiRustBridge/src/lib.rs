@@ -57,7 +57,11 @@ const SET_FLAG: u32 = 4;
 const GET_QUEUED_CARDS: u32 = 3;
 const ANSWER_CARD: u32 = 4;
 const RENDER_EXISTING_CARD: u32 = 6;
-const EXTRACT_AV_TAGS: u32 = 0;
+// BackendCardRenderingService adds three backend-only methods before the
+// CardRenderingService methods. ExtractAvTags is therefore method 3 when
+// invoked through Backend::run_service_method (rather than method 0 from the
+// protobuf service declaration).
+const EXTRACT_AV_TAGS: u32 = 3;
 const SERVICE_SCHEDULER: u32 = 13;
 const SERVICE_CARD_RENDERING: u32 = 27;
 
