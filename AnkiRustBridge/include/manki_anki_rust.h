@@ -143,8 +143,9 @@ int manki_anki_load_decks(
 
 /**
  * Returns the next due card in a deck as UTF-8 JSON, including rendered
- * question and answer HTML. The result is `null` when the deck has no card
- * due now. Free the response with manki_anki_free_response().
+ * question and answer HTML plus the audio filenames for each side. The result
+ * is `null` when the deck has no card due now. Free the response with
+ * manki_anki_free_response().
  */
 int manki_anki_get_next_card(
     const char *collection_path,

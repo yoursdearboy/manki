@@ -37,7 +37,10 @@ final class MankiScreenshotTests: XCTestCase {
 
     @MainActor
     func testReviewQuestion() throws {
-        capture(fixture: "review-question") { $0.buttons["SHOW ANSWER"] }
+        capture(fixture: "review-question") { application in
+            XCTAssertTrue(application.buttons["Replay audio"].waitForExistence(timeout: 10))
+            return application.buttons["SHOW ANSWER"]
+        }
     }
 
     @MainActor
@@ -118,7 +121,10 @@ final class MankiScreenshotTests: XCTestCase {
 
     @MainActor
     func testRevealedAnswer() throws {
-        capture(fixture: "revealed-answer") { $0.staticTexts["Buenos Aires"] }
+        capture(fixture: "revealed-answer") { application in
+            XCTAssertTrue(application.buttons["Replay audio"].waitForExistence(timeout: 10))
+            return application.staticTexts["Buenos Aires"]
+        }
     }
 
     @MainActor

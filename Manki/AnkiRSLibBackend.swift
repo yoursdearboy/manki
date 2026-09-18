@@ -81,6 +81,17 @@ final class AnkiRSLibBackend {
         }
     }
 
+    static func mediaURL(for filename: String) -> URL? {
+        guard !filename.isEmpty,
+              filename == URL(fileURLWithPath: filename).lastPathComponent,
+              let collection = try? collectionPath() else { return nil }
+        let collectionURL = URL(fileURLWithPath: collection)
+        return collectionURL
+            .deletingLastPathComponent()
+            .appending(path: "\(collectionURL.deletingPathExtension().lastPathComponent).media")
+            .appending(path: filename)
+    }
+
     private static func collectionPath() throws -> String {
         try FileManager.default.url(
             for: .applicationSupportDirectory,

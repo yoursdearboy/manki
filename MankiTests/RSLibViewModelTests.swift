@@ -265,6 +265,23 @@ final class RSLibViewModelTests: XCTestCase {
         let card = try JSONDecoder().decode(ReviewCard.self, from: data)
 
         XCTAssertEqual(card.flag, CardFlag.none.rawValue)
+        XCTAssertTrue(card.questionAudio.isEmpty)
+        XCTAssertTrue(card.answerAudio.isEmpty)
+    }
+
+    func testReviewCardDecodesAudioForEachSide() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": 10,
+            "question": "Question",
+            "answer": "Answer",
+            "questionAudio": ["front.mp3"],
+            "answerAudio": ["back-a.mp3", "back-b.ogg"],
+        ])
+
+        let card = try JSONDecoder().decode(ReviewCard.self, from: data)
+
+        XCTAssertEqual(card.questionAudio, ["front.mp3"])
+        XCTAssertEqual(card.answerAudio, ["back-a.mp3", "back-b.ogg"])
     }
 
     private func deck(id: Int64, name: String, new: Int = 0, learn: Int = 0, due: Int = 0) throws -> Deck {
