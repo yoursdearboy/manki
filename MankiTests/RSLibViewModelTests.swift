@@ -59,6 +59,57 @@ final class RSLibViewModelTests: XCTestCase {
         XCTAssertFalse(model.isSyncing)
     }
 
+    func testFullSyncConflictPromptsForDirectionAndUploadsSelection() async throws {
+        let localDeck = try deck(id: 1, name: "Local", due: 2)
+        let uploadedDeck = try deck(id: 1, name: "Uploaded", due: 2)
+        var selectedDirection: FullSyncDirection?
+        let model = RSLibViewModel(
+            decks: [localDeck],
+            isAuthenticated: true,
+            fetchDecks: { _, _ in
+                throw AnkiRSLibError.syncFailed(
+                    "Anki requires a full-sync direction choice; refusing to overwrite either collection"
+                )
+            },
+            resolveFullSync: { _, _, direction in
+                selectedDirection = direction
+                return [uploadedDeck]
+            },
+            badgeSetter: NoopBadgeSetter()
+        )
+
+        await model.sync()
+
+        XCTAssertTrue(model.needsFullSyncChoice)
+        XCTAssertNil(model.syncErrorMessage)
+        XCTAssertEqual(model.decks, [localDeck])
+
+        await model.resolveFullSync(.upload)
+
+        XCTAssertEqual(selectedDirection, .upload)
+        XCTAssertFalse(model.needsFullSyncChoice)
+        XCTAssertEqual(model.decks, [uploadedDeck])
+        XCTAssertNotNil(model.lastSynced)
+    }
+
+    func testCancellingFullSyncChoiceKeepsCollectionUnchanged() async throws {
+        let localDeck = try deck(id: 1, name: "Local", due: 2)
+        let model = RSLibViewModel(
+            decks: [localDeck],
+            isAuthenticated: true,
+            fetchDecks: { _, _ in
+                throw AnkiRSLibError.syncFailed("Anki requires a full-sync direction choice")
+            },
+            badgeSetter: NoopBadgeSetter()
+        )
+
+        await model.sync()
+        model.cancelFullSync()
+
+        XCTAssertFalse(model.needsFullSyncChoice)
+        XCTAssertEqual(model.decks, [localDeck])
+    }
+
     func testRepeatedSyncDoesNotOverlap() async throws {
         let gate = DispatchSemaphore(value: 0)
         let started = expectation(description: "one background sync started")

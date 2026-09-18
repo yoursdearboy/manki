@@ -26,6 +26,13 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
+    func testFullSyncDirectionChoice() throws {
+        capture(fixture: "full-sync-choice") { application in
+            application.alerts.staticTexts["Choose which collection to keep"]
+        }
+    }
+
+    @MainActor
     func testSettings() throws {
         captureSettings(confirmingLogout: false)
     }

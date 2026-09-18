@@ -24,6 +24,18 @@ final class AnkiRSLibBackend {
     }
 
     static func fetchDecks(username: String, password: String) throws -> [Deck] {
+        try fetchDecksImpl(username: username, password: password, fullSyncDirection: nil)
+    }
+
+    static func fetchDecks(username: String, password: String, fullSyncDirection: FullSyncDirection) throws -> [Deck] {
+        try fetchDecksImpl(username: username, password: password, fullSyncDirection: fullSyncDirection)
+    }
+
+    private static func fetchDecksImpl(
+        username: String,
+        password: String,
+        fullSyncDirection: FullSyncDirection?
+    ) throws -> [Deck] {
         let collection = try collectionPath()
         var output: UnsafeMutablePointer<UInt8>?
         var outputLength = 0
@@ -31,7 +43,19 @@ final class AnkiRSLibBackend {
             "https://sync.ankiweb.net".withCString { endpoint in
                 username.withCString { username in
                     password.withCString { password in
-                        manki_anki_fetch_decks(collection, endpoint, username, password, &output, &outputLength)
+                        if let fullSyncDirection {
+                            manki_anki_fetch_decks_full_sync(
+                                collection,
+                                endpoint,
+                                username,
+                                password,
+                                fullSyncDirection == .upload,
+                                &output,
+                                &outputLength
+                            )
+                        } else {
+                            manki_anki_fetch_decks(collection, endpoint, username, password, &output, &outputLength)
+                        }
                     }
                 }
             }
@@ -149,6 +173,11 @@ final class AnkiRSLibBackend {
     }
 }
 
+enum FullSyncDirection: Equatable {
+    case upload
+    case download
+}
+
 enum AnkiRSLibError: LocalizedError {
     case initializationFailed(Int32)
     case bridgeFailed(Int32)
@@ -156,6 +185,11 @@ enum AnkiRSLibError: LocalizedError {
     case syncFailed(String)
     case reviewFailed(String)
     case collectionFailed(String)
+
+    var requiresFullSyncChoice: Bool {
+        guard case let .syncFailed(message) = self else { return false }
+        return message.contains("requires a full-sync direction choice")
+    }
 
     var errorDescription: String? {
         switch self {
