@@ -129,8 +129,12 @@ final class MankiScreenshotTests: XCTestCase {
     @MainActor
     func testRevealedAnswer() throws {
         capture(fixture: "revealed-answer") { application in
-            XCTAssertTrue(application.buttons["Replay audio"].waitForExistence(timeout: 10))
-            return application.staticTexts["Buenos Aires"]
+            application.staticTexts["Buenos Aires"]
+        } validate: { application in
+            XCTAssertTrue(
+                application.buttons["Replay audio"].exists,
+                "The revealed answer did not expose its audio control"
+            )
         }
     }
 
@@ -140,10 +144,15 @@ final class MankiScreenshotTests: XCTestCase {
     }
 
     @MainActor
-    private func capture(fixture: String, readyElement: (XCUIApplication) -> XCUIElement) {
+    private func capture(
+        fixture: String,
+        readyElement: (XCUIApplication) -> XCUIElement,
+        validate: (XCUIApplication) -> Void = { _ in }
+    ) {
         let application = launch(fixture: fixture)
 
         XCTAssertTrue(readyElement(application).waitForExistence(timeout: 10), "The \(fixture) fixture did not become ready")
+        validate(application)
         attachScreenshots(named: fixture, application: application)
     }
 
