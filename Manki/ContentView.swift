@@ -80,6 +80,24 @@ struct ContentView: View {
                 guard deckID != nil else { return }
                 openRequestedDeckIfAvailable()
             }
+            .alert("Choose which collection to keep", isPresented: fullSyncChoiceBinding) {
+                Button("Upload to AnkiWeb", role: .destructive) {
+                    Task { await model.resolveFullSync(.upload) }
+                }
+                Button("Download from AnkiWeb", role: .destructive) {
+                    Task { await model.resolveFullSync(.download) }
+                }
+                Button("Cancel", role: .cancel) { model.cancelFullSync() }
+            } message: {
+                Text("Anki cannot merge these collections. Upload replaces the collection on AnkiWeb. Download replaces the collection on this device.")
+            }
+    }
+
+    private var fullSyncChoiceBinding: Binding<Bool> {
+        Binding(
+            get: { model.needsFullSyncChoice },
+            set: { if !$0 { model.cancelFullSync() } }
+        )
     }
 
     private var decksScreen: some View {

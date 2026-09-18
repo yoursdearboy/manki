@@ -268,7 +268,59 @@ pub unsafe extern "C" fn manki_anki_fetch_decks(
         let endpoint = unsafe { c_string(endpoint) }?;
         let username = unsafe { c_string(username) }?;
         let password = unsafe { c_string(password) }?;
-        fetch_decks(&collection_path, &endpoint, &username, &password)
+        fetch_decks(&collection_path, &endpoint, &username, &password, None)
+    })();
+
+    match result {
+        Ok(json) => {
+            unsafe { set_output(json, out_data, out_len) };
+            OK
+        }
+        Err(error) => {
+            unsafe { set_output(error.into_bytes(), out_data, out_len) };
+            FETCH_ERROR
+        }
+    }
+}
+
+/// Resolves a full-sync conflict in the direction explicitly selected by the
+/// user, then returns the resulting decks as JSON.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_fetch_decks_full_sync(
+    collection_path: *const c_char,
+    endpoint: *const c_char,
+    username: *const c_char,
+    password: *const c_char,
+    upload: bool,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    if collection_path.is_null()
+        || endpoint.is_null()
+        || username.is_null()
+        || password.is_null()
+        || out_data.is_null()
+        || out_len.is_null()
+    {
+        return INVALID_ARGUMENT;
+    }
+    unsafe {
+        *out_data = ptr::null_mut();
+        *out_len = 0;
+    }
+
+    let result = (|| -> Result<Vec<u8>, String> {
+        let collection_path = unsafe { c_string(collection_path) }?;
+        let endpoint = unsafe { c_string(endpoint) }?;
+        let username = unsafe { c_string(username) }?;
+        let password = unsafe { c_string(password) }?;
+        fetch_decks(
+            &collection_path,
+            &endpoint,
+            &username,
+            &password,
+            Some(upload),
+        )
     })();
 
     match result {
@@ -420,6 +472,7 @@ fn fetch_decks(
     endpoint: &str,
     username: &str,
     password: &str,
+    full_sync_upload: Option<bool>,
 ) -> Result<Vec<u8>, String> {
     let collection_path = PathBuf::from(collection_path);
     let parent = collection_path
@@ -442,7 +495,8 @@ fn fetch_decks(
         open_request,
     )?;
 
-    let result = fetch_decks_from_open_collection(&backend, endpoint, username, password);
+    let result =
+        fetch_decks_from_open_collection(&backend, endpoint, username, password, full_sync_upload);
     let close_result = call::<_, anki_proto::generic::Empty>(
         &backend,
         SERVICE_COLLECTION,
@@ -588,6 +642,7 @@ fn fetch_decks_from_open_collection(
     endpoint: &str,
     username: &str,
     password: &str,
+    full_sync_upload: Option<bool>,
 ) -> Result<Vec<u8>, String> {
     let auth: SyncAuth = call(
         backend,
@@ -635,10 +690,29 @@ fn fetch_decks_from_open_collection(
         ChangesRequired::FullUpload => {
             return Err("the server is empty; refusing a full upload while fetching decks".into())
         }
-        ChangesRequired::FullSync => return Err(
-            "Anki requires a full-sync direction choice; refusing to overwrite either collection"
-                .into(),
-        ),
+        ChangesRequired::FullSync => {
+            let Some(upload) = full_sync_upload else {
+                return Err(
+                    "Anki requires a full-sync direction choice; refusing to overwrite either collection"
+                        .into(),
+                );
+            };
+            let full_sync_auth = SyncAuth {
+                hkey: auth.hkey,
+                endpoint: sync.new_endpoint.or(auth.endpoint),
+                io_timeout_secs: auth.io_timeout_secs,
+            };
+            call::<_, anki_proto::generic::Empty>(
+                backend,
+                SERVICE_SYNC,
+                FULL_UPLOAD_OR_DOWNLOAD,
+                FullUploadOrDownloadRequest {
+                    auth: Some(full_sync_auth),
+                    upload,
+                    server_usn: Some(sync.server_media_usn),
+                },
+            )?;
+        }
     }
 
     wait_for_media_sync(backend)?;

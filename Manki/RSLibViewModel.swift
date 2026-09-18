@@ -116,6 +116,7 @@ final class RSLibViewModel: ObservableObject {
     @Published private(set) var isSyncing = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var syncErrorMessage: String?
+    @Published private(set) var needsFullSyncChoice = false
     @Published private(set) var lastSynced: Date?
     @Published private(set) var isAuthenticated = false
     @Published private(set) var reviewCard: ReviewCard?
@@ -125,6 +126,7 @@ final class RSLibViewModel: ObservableObject {
     private let fixture: UITestFixture?
     private let loadCachedDecks: () throws -> [Deck]
     private let fetchDecks: (String, String) throws -> [Deck]
+    private let resolveFullSync: (String, String, FullSyncDirection) throws -> [Deck]
     private let fetchNextCard: (Deck) throws -> ReviewCard?
     private let submitAnswer: (ReviewCard, Deck, CardRating, UInt32) throws -> Void
     private let setCardFlag: (ReviewCard, CardFlag) throws -> Void
@@ -133,6 +135,7 @@ final class RSLibViewModel: ObservableObject {
     private var isLoadingCache = false
     private var activeReviewDeckID: Int64?
     private var hasQueuedPeriodicSync = false
+    private var saveCredentialsAfterFullSync = false
     private var reviewRequestID = UUID()
 
     @Published private(set) var completedReviewDeckID: Int64?
@@ -143,6 +146,7 @@ final class RSLibViewModel: ObservableObject {
         isAuthenticated: Bool = false,
         loadCachedDecks: @escaping () throws -> [Deck] = AnkiRSLibBackend.loadCachedDecks,
         fetchDecks: @escaping (String, String) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
+        resolveFullSync: @escaping (String, String, FullSyncDirection) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
         fetchNextCard: @escaping (Deck) throws -> ReviewCard? = AnkiRSLibBackend.nextCard,
         submitAnswer: @escaping (ReviewCard, Deck, CardRating, UInt32) throws -> Void = AnkiRSLibBackend.answer,
         setCardFlag: @escaping (ReviewCard, CardFlag) throws -> Void = AnkiRSLibBackend.setFlag,
@@ -153,6 +157,7 @@ final class RSLibViewModel: ObservableObject {
         self.isAuthenticated = isAuthenticated
         self.loadCachedDecks = loadCachedDecks
         self.fetchDecks = fetchDecks
+        self.resolveFullSync = resolveFullSync
         self.fetchNextCard = fetchNextCard
         self.submitAnswer = submitAnswer
         self.setCardFlag = setCardFlag
@@ -164,6 +169,7 @@ final class RSLibViewModel: ObservableObject {
         lastSynced = Date(timeIntervalSince1970: 1_700_000_000)
         if fixture == .cachedDecksSyncing { isSyncing = true }
         if fixture == .syncError { syncErrorMessage = "You appear to be offline." }
+        if fixture == .fullSyncChoice { needsFullSyncChoice = true }
         if fixture == .reviewQuestion || fixture == .reviewAnswer || fixture == .redFlagCard {
             reviewCard = fixture == .redFlagCard ? Self.redFlagFixtureCard : Self.fixtureCard
         }
@@ -211,6 +217,20 @@ final class RSLibViewModel: ObservableObject {
 
     func sync() async { await sync(saveCredentialsOnSuccess: false) }
 
+    func resolveFullSync(_ direction: FullSyncDirection) async {
+        let saveCredentialsOnSuccess = saveCredentialsAfterFullSync
+        needsFullSyncChoice = false
+        await sync(saveCredentialsOnSuccess: saveCredentialsOnSuccess, fullSyncDirection: direction)
+    }
+
+    func cancelFullSync() {
+        needsFullSyncChoice = false
+        if saveCredentialsAfterFullSync {
+            isAuthenticated = false
+        }
+        saveCredentialsAfterFullSync = false
+    }
+
     func logout() async {
         credentials.delete()
         username = ""
@@ -218,11 +238,13 @@ final class RSLibViewModel: ObservableObject {
         decks = []
         errorMessage = nil
         syncErrorMessage = nil
+        needsFullSyncChoice = false
         lastSynced = nil
         isAuthenticated = false
         reviewCard = nil
         activeReviewDeckID = nil
         hasQueuedPeriodicSync = false
+        saveCredentialsAfterFullSync = false
         completedReviewDeckID = nil
         await updateBadge()
     }
@@ -352,7 +374,7 @@ final class RSLibViewModel: ObservableObject {
         }
     }
 
-    private func sync(saveCredentialsOnSuccess: Bool) async {
+    private func sync(saveCredentialsOnSuccess: Bool, fullSyncDirection: FullSyncDirection? = nil) async {
         guard fixture == nil else { return }
         guard !isSyncing else { return }
         isSyncing = true
@@ -362,16 +384,25 @@ final class RSLibViewModel: ObservableObject {
         let password = password
         var didSync = false
         do {
-            let fetched = try await Task.detached(priority: .userInitiated) { [fetchDecks] in
-                try fetchDecks(username, password)
+            let fetched = try await Task.detached(priority: .userInitiated) { [fetchDecks, resolveFullSync] in
+                if let fullSyncDirection {
+                    return try resolveFullSync(username, password, fullSyncDirection)
+                }
+                return try fetchDecks(username, password)
             }.value
             decks = sorted(fetched)
             lastSynced = .now
             didSync = true
             if saveCredentialsOnSuccess { try credentials.save(username: username, password: password) }
+            saveCredentialsAfterFullSync = false
             await updateBadge()
         } catch {
-            syncErrorMessage = error.localizedDescription
+            if let error = error as? AnkiRSLibError, error.requiresFullSyncChoice {
+                needsFullSyncChoice = true
+                saveCredentialsAfterFullSync = saveCredentialsOnSuccess
+            } else {
+                syncErrorMessage = error.localizedDescription
+            }
         }
         // Reopen the collection only when a reviewer was opened during sync.
         // That refreshes the scheduler snapshot before resuming it, without
@@ -446,6 +477,7 @@ enum UITestFixture: String {
     case allCaughtUp = "all-caught-up"
     case cachedDecksSyncing = "cached-decks-syncing"
     case syncError = "sync-error"
+    case fullSyncChoice = "full-sync-choice"
 
     static var current: Self? {
         let arguments = ProcessInfo.processInfo.arguments

@@ -2,6 +2,7 @@
 #define MANKI_ANKI_RUST_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -126,6 +127,23 @@ int manki_anki_fetch_decks(
     const char *endpoint,
     const char *username,
     const char *password,
+    uint8_t **out_data,
+    size_t *out_len
+);
+
+/**
+ * Resolves a full-sync conflict and lists the resulting decks.
+ *
+ * Set upload to true to replace AnkiWeb with the local collection, or false
+ * to replace the local collection with AnkiWeb. Call this only after
+ * manki_anki_fetch_decks() reports that a full-sync direction is required.
+ */
+int manki_anki_fetch_decks_full_sync(
+    const char *collection_path,
+    const char *endpoint,
+    const char *username,
+    const char *password,
+    bool upload,
     uint8_t **out_data,
     size_t *out_len
 );
