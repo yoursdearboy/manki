@@ -636,8 +636,8 @@ private struct ReviewerView: View {
                 }
             }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
-            .onChange(of: model.reviewCard?.id, initial: true) { previousCardID, _ in
-                if previousCardID != nil { showingAnswer = false }
+            .onChange(of: model.reviewCard?.id, initial: true) { previousCardID, cardID in
+                if previousCardID != nil, previousCardID != cardID { showingAnswer = false }
                 playVisibleAudio()
             }
             .onChange(of: showingAnswer) { _, _ in
