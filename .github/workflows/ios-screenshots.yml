@@ -104,6 +104,60 @@ jobs:
             echo "restored=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Restore simulator MankiAnkiRust XCFramework cache
+        id: simulator-framework-cache
+        if: steps.rust-framework.outputs.restored != 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.RUST_FRAMEWORK_PATH }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+
+      # Artifacts are repository-wide, so this also reuses a simulator build
+      # from the default branch when Actions cache scoping prevents a hit.
+      - name: Download reusable simulator MankiAnkiRust XCFramework artifact
+        if: steps.rust-framework.outputs.restored != 'true' && steps.simulator-framework-cache.outputs.cache-hit != 'true'
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: MankiAnkiRust-simulator-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: process.env.ARTIFACT_NAME,
+              per_page: 100,
+            });
+            const artifact = artifacts
+              .filter(candidate => !candidate.expired)
+              .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))[0];
+            core.info(artifact
+              ? `Reusing artifact ${artifact.id}`
+              : `No reusable artifact named ${process.env.ARTIFACT_NAME} was found`);
+            if (!artifact) return;
+            const archive = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
+            });
+            const fs = require('fs');
+            fs.writeFileSync('/tmp/manki-anki-rust-simulator.zip', Buffer.from(archive.data));
+            await exec.exec('mkdir', ['-p', process.env.RUST_FRAMEWORK_PATH]);
+            await exec.exec('ditto', [
+              '-x', '-k', '/tmp/manki-anki-rust-simulator.zip', process.env.RUST_FRAMEWORK_PATH,
+            ]);
+
+      - name: Check for a simulator MankiAnkiRust XCFramework
+        id: simulator-framework
+        if: steps.rust-framework.outputs.restored != 'true'
+        run: |
+          if test -f "$RUST_FRAMEWORK_PATH/Info.plist" \
+            && test -d "$RUST_FRAMEWORK_PATH/ios-arm64-simulator"; then
+            echo "restored=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "restored=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Rust and iOS targets
         if: steps.rust-framework.outputs.restored != 'true'
         uses: dtolnay/rust-toolchain@stable
@@ -124,8 +178,26 @@ jobs:
         run: scripts/bootstrap-anki-rslib.sh
 
       - name: Build simulator MankiAnkiRust framework
-        if: steps.rust-framework.outputs.restored != 'true'
+        if: steps.rust-framework.outputs.restored != 'true' && steps.simulator-framework.outputs.restored != 'true'
         run: scripts/build-anki-xcframework.sh simulator
+
+      # Persist this immediately: a UI-test failure should not force the next
+      # run to rebuild the already validated simulator Rust framework.
+      - name: Save simulator MankiAnkiRust XCFramework cache
+        if: steps.rust-framework.outputs.restored != 'true' && steps.simulator-framework.outputs.restored != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.RUST_FRAMEWORK_PATH }}
+          key: ${{ steps.simulator-framework-cache.outputs.cache-primary-key }}
+
+      - name: Upload reusable simulator MankiAnkiRust XCFramework
+        if: steps.rust-framework.outputs.restored != 'true' && steps.simulator-framework.outputs.restored != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: MankiAnkiRust-simulator-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          path: ${{ env.RUST_FRAMEWORK_PATH }}/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Boot fixed simulator
         run: |
@@ -164,18 +236,18 @@ jobs:
         run: sccache --show-stats
 
       - name: Build device MankiAnkiRust framework
-        if: steps.rust-framework.outputs.restored != 'true'
+        if: success() && steps.rust-framework.outputs.restored != 'true'
         run: scripts/build-anki-xcframework.sh device
 
       - name: Save complete MankiAnkiRust XCFramework cache
-        if: steps.rust-framework.outputs.restored != 'true'
+        if: success() && steps.rust-framework.outputs.restored != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ env.RUST_FRAMEWORK_PATH }}
           key: ${{ steps.rust-framework-cache.outputs.cache-primary-key }}
 
       - name: Upload reusable MankiAnkiRust XCFramework
-        if: steps.rust-framework.outputs.restored != 'true'
+        if: success() && steps.rust-framework.outputs.restored != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}

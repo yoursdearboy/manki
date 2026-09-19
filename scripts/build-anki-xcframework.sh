@@ -107,9 +107,22 @@ make_simulator_framework() {
   make_framework aarch64-apple-ios-sim ios-simulator iPhoneSimulator
 }
 
-rm -rf "$stage_dir" "$output_dir"
-make_simulator_framework
+rm -rf "$stage_dir"
+mkdir -p "$stage_dir"
 
+if [[ "$build_mode" == device ]]; then
+  simulator_framework="$output_dir/ios-arm64-simulator/MankiAnkiRust.framework"
+  if [[ ! -f "$simulator_framework/MankiAnkiRust" ]]; then
+    print -u2 "Missing Apple-silicon simulator framework. Run $0 simulator first."
+    exit 1
+  fi
+  mkdir -p "$stage_dir/ios-simulator"
+  cp -R "$simulator_framework" "$stage_dir/ios-simulator/"
+else
+  make_simulator_framework
+fi
+
+rm -rf "$output_dir"
 mkdir -p "${output_dir:h}"
 if [[ "$build_mode" == device || "$build_mode" == all ]]; then
   make_framework aarch64-apple-ios ios-device iPhoneOS
