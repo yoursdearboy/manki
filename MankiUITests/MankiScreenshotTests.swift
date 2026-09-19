@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 final class MankiScreenshotTests: XCTestCase {
@@ -179,6 +180,9 @@ final class MankiScreenshotTests: XCTestCase {
     @MainActor
     private func attachScreenshots(named name: String, application: XCUIApplication) {
         attachScreenshot(named: "\(name)-portrait.png")
+        guard ProcessInfo.processInfo.environment["MANKI_CAPTURE_LANDSCAPE"] == "1" else {
+            return
+        }
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(application.wait(for: .runningForeground, timeout: 5))
         attachScreenshot(named: "\(name)-landscape.png")

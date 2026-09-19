@@ -8,6 +8,12 @@ output_dir="$root_dir/Frameworks/MankiAnkiRust.xcframework"
 stamp_file="$root_dir/Frameworks/.manki-anki-rust.stamp"
 stage_dir="$bridge_dir/target/xcframework-stage"
 header="$bridge_dir/include/manki_anki_rust.h"
+build_mode="${1:-all}"
+
+if [[ "$build_mode" != simulator && "$build_mode" != device && "$build_mode" != all ]]; then
+  print -u2 "Usage: $0 [simulator|device|all]"
+  exit 2
+fi
 
 if [[ ! -d "$root_dir/Vendor/anki/rslib" ]]; then
   print -u2 "Missing Vendor/anki. Run scripts/bootstrap-anki-rslib.sh first."
@@ -29,7 +35,8 @@ export DESCRIPTORS_BIN="$bridge_dir/target/anki_descriptors.bin"
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
 mkdir -p "$bridge_dir/target"
 
-for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
+build_target() {
+  local target="$1"
   # Homebrew's Rust installation does not include non-host standard libraries
   # and cannot install them.  Rustup can provision them; alternatively, allow
   # a custom toolchain where they were installed ahead of time.
@@ -48,10 +55,17 @@ for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
     fi
   fi
   cargo build --manifest-path "$bridge_dir/Cargo.toml" --target "$target" --release
-done
+}
 
-print "Building for macOS…"
-cargo build --manifest-path "$bridge_dir/Cargo.toml" --release
+if [[ "$build_mode" == simulator || "$build_mode" == all ]]; then
+  print "Building for Apple-silicon iOS Simulator…"
+  build_target aarch64-apple-ios-sim
+fi
+
+if [[ "$build_mode" == device || "$build_mode" == all ]]; then
+  print "Building for iPhone devices…"
+  build_target aarch64-apple-ios
+fi
 
 make_framework() {
   local target="$1"
@@ -59,11 +73,7 @@ make_framework() {
   local platform="$3"
   local framework="$stage_dir/$name/MankiAnkiRust.framework"
     local library
-    if [[ "$target" == native ]]; then
-      library="$bridge_dir/target/release/libmanki_anki_rust.a"
-    else
-      library="$bridge_dir/target/$target/release/libmanki_anki_rust.a"
-    fi
+  local library="$bridge_dir/target/$target/release/libmanki_anki_rust.a"
 
   rm -rf "$framework"
   mkdir -p "$framework/Headers" "$framework/Modules"
@@ -94,25 +104,26 @@ PLIST
 }
 
 make_simulator_framework() {
-  local framework="$stage_dir/ios-simulator/MankiAnkiRust.framework"
   make_framework aarch64-apple-ios-sim ios-simulator iPhoneSimulator
-  lipo -create \
-    "$bridge_dir/target/aarch64-apple-ios-sim/release/libmanki_anki_rust.a" \
-    "$bridge_dir/target/x86_64-apple-ios/release/libmanki_anki_rust.a" \
-    -output "$framework/MankiAnkiRust"
 }
 
 rm -rf "$stage_dir" "$output_dir"
-make_framework aarch64-apple-ios ios-device iPhoneOS
 make_simulator_framework
-make_framework native macos MacOSX
 
 mkdir -p "${output_dir:h}"
-xcodebuild -create-xcframework \
-  -framework "$stage_dir/ios-device/MankiAnkiRust.framework" \
-  -framework "$stage_dir/ios-simulator/MankiAnkiRust.framework" \
-  -framework "$stage_dir/macos/MankiAnkiRust.framework" \
-  -output "$output_dir"
+if [[ "$build_mode" == device || "$build_mode" == all ]]; then
+  make_framework aarch64-apple-ios ios-device iPhoneOS
+  xcodebuild -create-xcframework \
+    -framework "$stage_dir/ios-device/MankiAnkiRust.framework" \
+    -framework "$stage_dir/ios-simulator/MankiAnkiRust.framework" \
+    -output "$output_dir"
+  touch "$stamp_file"
+fi
 
-touch "$stamp_file"
+if [[ "$build_mode" == simulator ]]; then
+  xcodebuild -create-xcframework \
+    -framework "$stage_dir/ios-simulator/MankiAnkiRust.framework" \
+    -output "$output_dir"
+fi
+
 print "Built $output_dir"

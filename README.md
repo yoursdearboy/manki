@@ -38,7 +38,7 @@ From the repository root:
 ./scripts/build-anki-xcframework.sh
 ```
 
-The bootstrap script checks out Anki revision `e64c6b1aee3e8d668fb8bbe084beada8e070d985`, the revision pinned by Amgi at the time this bridge was introduced. The build script compiles iOS device, Apple-silicon simulator, and macOS slices, then writes `Frameworks/MankiAnkiRust.xcframework`, which is already linked by `Manki.xcodeproj`.
+The bootstrap script checks out Anki revision `e64c6b1aee3e8d668fb8bbe084beada8e070d985`, the revision pinned by Amgi at the time this bridge was introduced. The build script compiles iPhone-device and Apple-silicon simulator slices, then writes `Frameworks/MankiAnkiRust.xcframework`, which is already linked by `Manki.xcodeproj`. Pass `simulator` to build the simulator slice first, or `device` after it to produce the complete two-slice framework.
 
 Open `Manki.xcodeproj` after the framework has been built. The initial screen starts an rslib backend and confirms that the native engine can initialize.
 
@@ -51,14 +51,12 @@ platform-independent tests with:
 ./scripts/test-linux.sh
 ```
 
-The Xcode unit tests, UI screenshot tests, and unsigned iPhone build run on the
-GitHub-hosted macOS worker only when requested. Add a comment containing exactly
-`/run-ios-tests` to a pull request; the workflow checks out that pull request's
-merge commit and publishes the screenshots, test results, XCFramework, and IPA
-as workflow artifacts. Ordinary pushes and pull-request updates do not start
-the expensive macOS job. GitHub delivers ordinary pull-request conversation
-comments through its `issue_comment` event; the workflow follows that event's
-linked pull-request API resource before selecting the ref to test.
+The UI screenshot tests and unsigned iPhone build run on a GitHub-hosted macOS
+worker when the manually dispatched **iOS UI screenshots** workflow is run. The
+workflow runs portable Swift tests on Ubuntu in parallel, validates the
+Apple-silicon simulator before building the release IPA, and publishes the
+screenshots, test results, XCFramework, and IPA as artifacts. Enable its
+optional landscape input when landscape screenshot variants are required.
 
 ### Download the framework from CI
 
@@ -90,30 +88,6 @@ CI could additionally publish a ready-to-install signed IPA only after the
 corresponding certificate and provisioning profile are configured as protected
 repository secrets. They are intentionally not stored in this repository.
 
-## Fetch decks on macOS
-
-Build the same XCFramework plus a small Swift command-line wrapper:
-
-```sh
-./scripts/build-macos-cli.sh
-.build/manki-anki-cli --username you@example.com
-```
-
-The CLI prompts for the password with terminal echo disabled. It uses the macOS
-slice of `MankiAnkiRust.xcframework`; it does not contain its own Anki or sync
-implementation. By default it syncs into
-`~/Library/Application Support/Manki/collection.anki2` and prints each deck as
-`ID<TAB>name`. Use `--collection PATH` to choose another Manki-owned local
-collection and `--endpoint URL` for a compatible self-hosted server.
-
-The command intentionally skips media sync: deck names live in the collection,
-and avoiding media transfer keeps this read-focused command independent of
-media-server and proxy behavior.
-
-It refuses a full upload and an unresolved full-sync conflict. A normal sync
-uses Anki’s standard bidirectional semantics, so pass a new `--collection`
-path if you need an initial download without existing local changes.
-
 ## API contract
 
 The C header is at `AnkiRustBridge/include/manki_anki_rust.h`. Check
@@ -130,8 +104,8 @@ composing existing collection, scheduler, rendering, and sync RPCs in Swift
 does not require a new Rust export or an XCFramework rebuild. Rebuild the
 artifact only when updating rslib or the bridge ABI itself. The legacy
 `manki_anki_open_backend()`/`manki_anki_run_method()` pair and the original
-feature helpers remain exported so existing app and CLI binaries continue to
-work with the reusable framework.
+feature helpers remain exported so existing app binaries continue to work with
+the reusable framework.
 
 The Swift wrapper serializes calls with a lock: an rslib backend handle must not be closed while a request is in progress. It does not interpret or modify the request and response payloads.
 

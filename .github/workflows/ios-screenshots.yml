@@ -2,43 +2,69 @@ name: iOS UI screenshots
 
 on:
   workflow_dispatch:
+    inputs:
+      include_landscape_screenshots:
+        description: Capture landscape screenshot variants in addition to the default portrait set
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: write
   contents: read
 
+env:
+  RUST_TOOLCHAIN: 1.98.1
+  RUST_TARGETS: ios-arm64-device-and-simulator
+  XCODE_VERSION: 16.4
+  RUST_FRAMEWORK_PATH: Frameworks/MankiAnkiRust.xcframework
+
 jobs:
+  portable-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out selected ref
+        uses: actions/checkout@v7
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: linux-swiftpm-${{ hashFiles('Package.swift', 'Package.resolved', 'Manki/DueBadgeCount.swift', 'Manki/ReviewCardSettings.swift', 'Manki/StudySettings.swift', 'Tests/**') }}
+          restore-keys: |
+            linux-swiftpm-
+      - name: Run portable Swift tests
+        run: scripts/test-linux.sh
+
   screenshots:
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       SIMULATOR_NAME: iPhone 16 Pro
       SIMULATOR_OS: "18.5"
       RESULT_BUNDLE: TestResults/MankiScreenshots.xcresult
-      UNIT_RESULT_BUNDLE: TestResults/MankiUnitTests.xcresult
+      SCCACHE_CACHE_SIZE: 5G
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
 
     steps:
       - name: Check out selected ref
         uses: actions/checkout@v7
 
-      - name: Restore MankiAnkiRust XCFramework cache
+      - name: Restore complete MankiAnkiRust XCFramework cache
         id: rust-framework-cache
         uses: actions/cache/restore@v6
         with:
-          path: Frameworks/MankiAnkiRust.xcframework
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode-16.4-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          path: ${{ env.RUST_FRAMEWORK_PATH }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
 
-      # Pull-request caches are scoped to refs/pull/*/merge, so a cache written
-      # by a PR cannot be restored by main (or by another PR), even when its
-      # key is identical. Use the content-addressed artifact as a cross-ref
-      # fallback while retaining the faster cache path where GitHub permits it.
+      # Pull-request caches are scoped to refs/pull/*/merge. Reuse a
+      # content-addressed artifact when GitHub's cache scoping prevents a hit.
       - name: Download reusable MankiAnkiRust XCFramework artifact
         if: steps.rust-framework-cache.outputs.cache-hit != 'true'
-        id: rust-framework-artifact
         uses: actions/github-script@v8
         env:
-          ARTIFACT_NAME: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          ARTIFACT_NAME: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
         with:
           script: |
             const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
@@ -54,9 +80,6 @@ jobs:
               ? `Reusing artifact ${artifact.id}`
               : `No reusable artifact named ${process.env.ARTIFACT_NAME} was found`);
             if (!artifact) return;
-
-            // Downloading by artifact ID avoids cache ref scoping and does not
-            // depend on actions/download-artifact finding the originating run.
             const archive = await github.rest.actions.downloadArtifact({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -65,78 +88,44 @@ jobs:
             });
             const fs = require('fs');
             fs.writeFileSync('/tmp/manki-anki-rust.zip', Buffer.from(archive.data));
-            await exec.exec('mkdir', ['-p', 'Frameworks/MankiAnkiRust.xcframework']);
+            await exec.exec('mkdir', ['-p', process.env.RUST_FRAMEWORK_PATH]);
             await exec.exec('ditto', [
-              '-x', '-k', '/tmp/manki-anki-rust.zip',
-              'Frameworks/MankiAnkiRust.xcframework',
+              '-x', '-k', '/tmp/manki-anki-rust.zip', process.env.RUST_FRAMEWORK_PATH,
             ]);
 
-      - name: Check for a restored MankiAnkiRust XCFramework
+      - name: Check for a complete MankiAnkiRust XCFramework
+        id: rust-framework
         run: |
-          if test -f Frameworks/MankiAnkiRust.xcframework/Info.plist; then
-            echo "RUST_FRAMEWORK_RESTORED=true" >> "$GITHUB_ENV"
+          if test -f "$RUST_FRAMEWORK_PATH/Info.plist" \
+            && test -d "$RUST_FRAMEWORK_PATH/ios-arm64" \
+            && test -d "$RUST_FRAMEWORK_PATH/ios-arm64-simulator"; then
+            echo "restored=true" >> "$GITHUB_OUTPUT"
           else
-            echo "RUST_FRAMEWORK_RESTORED=false" >> "$GITHUB_ENV"
+            echo "restored=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install build dependencies
-        if: env.RUST_FRAMEWORK_RESTORED != 'true'
-        run: brew install protobuf
-
       - name: Install Rust and iOS targets
-        if: env.RUST_FRAMEWORK_RESTORED != 'true'
+        if: steps.rust-framework.outputs.restored != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Set up sccache
+        if: steps.rust-framework.outputs.restored != 'true'
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Install build dependencies
+        if: steps.rust-framework.outputs.restored != 'true'
+        run: brew install protobuf
 
       - name: Prepare Anki rslib sources
-        if: env.RUST_FRAMEWORK_RESTORED != 'true'
+        if: steps.rust-framework.outputs.restored != 'true'
         run: scripts/bootstrap-anki-rslib.sh
 
-      - name: Build MankiAnkiRust XCFramework
-        if: env.RUST_FRAMEWORK_RESTORED != 'true'
-        run: scripts/build-anki-xcframework.sh
-
-      - name: Save MankiAnkiRust XCFramework cache
-        if: env.RUST_FRAMEWORK_RESTORED != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: Frameworks/MankiAnkiRust.xcframework
-          key: ${{ steps.rust-framework-cache.outputs.cache-primary-key }}
-
-      - name: Upload reusable MankiAnkiRust XCFramework
-        if: env.RUST_FRAMEWORK_RESTORED != 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: MankiAnkiRust-xcframework-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
-          path: Frameworks/MankiAnkiRust.xcframework/
-          if-no-files-found: error
-
-      - name: Build unsigned iPhone application
-        run: |
-          rm -rf Build/UnsignedDevice Build/UnsignedPayload Manki-unsigned.ipa
-          xcodebuild build \
-            -project Manki.xcodeproj \
-            -scheme Manki \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath Build/UnsignedDevice \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
-          mkdir -p Build/UnsignedPayload/Payload
-          cp -R Build/UnsignedDevice/Build/Products/Release-iphoneos/Manki.app \
-            Build/UnsignedPayload/Payload/
-          (cd Build/UnsignedPayload && ditto -c -k --sequesterRsrc --keepParent Payload ../../Manki-unsigned.ipa)
-          unzip -Z1 Manki-unsigned.ipa > Build/unsigned-ipa-contents.txt
-          grep -Fxq 'Payload/Manki.app/Manki' Build/unsigned-ipa-contents.txt
-
-      - name: Upload unsigned iPhone IPA
-        uses: actions/upload-artifact@v7
-        with:
-          name: Manki-unsigned-iphone
-          path: Manki-unsigned.ipa
-          if-no-files-found: error
+      - name: Build simulator MankiAnkiRust framework
+        if: steps.rust-framework.outputs.restored != 'true'
+        run: scripts/build-anki-xcframework.sh simulator
 
       - name: Boot fixed simulator
         run: |
@@ -155,26 +144,9 @@ jobs:
           xcrun simctl boot "$DEVICE_ID"
           xcrun simctl bootstatus "$DEVICE_ID" -b
 
-      - name: Build application
-        run: |
-          xcodebuild build \
-            -project Manki.xcodeproj \
-            -scheme Manki \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID"
-
-      - name: Run unit tests
-        run: |
-          rm -rf "$UNIT_RESULT_BUNDLE"
-          xcodebuild test \
-            -project Manki.xcodeproj \
-            -scheme Manki \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:MankiTests \
-            -resultBundlePath "$UNIT_RESULT_BUNDLE"
-
       - name: Run UI screenshot tests
+        env:
+          MANKI_CAPTURE_LANDSCAPE: ${{ inputs.include_landscape_screenshots && '1' || '0' }}
         run: |
           rm -rf "$RESULT_BUNDLE"
           mkdir -p "$(dirname "$RESULT_BUNDLE")"
@@ -184,7 +156,60 @@ jobs:
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:MankiUITests \
-            -resultBundlePath "$RESULT_BUNDLE"
+            -resultBundlePath "$RESULT_BUNDLE" \
+            ARCHS=arm64
+
+      - name: Report sccache statistics
+        if: always() && steps.rust-framework.outputs.restored != 'true'
+        run: sccache --show-stats
+
+      - name: Build device MankiAnkiRust framework
+        if: steps.rust-framework.outputs.restored != 'true'
+        run: scripts/build-anki-xcframework.sh device
+
+      - name: Save complete MankiAnkiRust XCFramework cache
+        if: steps.rust-framework.outputs.restored != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.RUST_FRAMEWORK_PATH }}
+          key: ${{ steps.rust-framework-cache.outputs.cache-primary-key }}
+
+      - name: Upload reusable MankiAnkiRust XCFramework
+        if: steps.rust-framework.outputs.restored != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          path: ${{ env.RUST_FRAMEWORK_PATH }}/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Build unsigned iPhone application
+        run: |
+          rm -rf Build/UnsignedDevice Build/UnsignedPayload Manki-unsigned.ipa
+          xcodebuild build \
+            -project Manki.xcodeproj \
+            -scheme Manki \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath Build/UnsignedDevice \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ARCHS=arm64
+          mkdir -p Build/UnsignedPayload/Payload
+          cp -R Build/UnsignedDevice/Build/Products/Release-iphoneos/Manki.app \
+            Build/UnsignedPayload/Payload/
+          (cd Build/UnsignedPayload && ditto -c -k --sequesterRsrc --keepParent Payload ../../Manki-unsigned.ipa)
+          unzip -Z1 Manki-unsigned.ipa > Build/unsigned-ipa-contents.txt
+          grep -Fxq 'Payload/Manki.app/Manki' Build/unsigned-ipa-contents.txt
+
+      - name: Upload unsigned iPhone IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: Manki-unsigned-iphone
+          path: Manki-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Extract screenshot attachments
         if: always()
@@ -198,6 +223,7 @@ jobs:
           name: manki-ios-screenshots
           path: screenshots/
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload complete test results
         if: always()
@@ -206,11 +232,4 @@ jobs:
           name: manki-ios-xcresult
           path: ${{ env.RESULT_BUNDLE }}
           if-no-files-found: warn
-
-      - name: Upload unit test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: manki-ios-unit-xcresult
-          path: ${{ env.UNIT_RESULT_BUNDLE }}
-          if-no-files-found: warn
+          retention-days: 7

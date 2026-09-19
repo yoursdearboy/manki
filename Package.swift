@@ -14,11 +14,6 @@ var targets: [Target] = [
     .testTarget(name: "DueBadgeCoreTests", dependencies: ["DueBadgeCore"])
 ]
 
-#if os(macOS)
-products.append(.executable(name: "manki-cli", targets: ["MankiCLI"]))
-targets.append(.executableTarget(name: "MankiCLI", path: "MankiCLI"))
-#endif
-
 let package = Package(
     name: "Manki",
     platforms: [.macOS(.v13)],
