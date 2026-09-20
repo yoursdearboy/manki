@@ -64,6 +64,10 @@ const RENDER_EXISTING_CARD: u32 = 6;
 const EXTRACT_AV_TAGS: u32 = 3;
 const SERVICE_SCHEDULER: u32 = 13;
 const SERVICE_CARD_RENDERING: u32 = 27;
+#[cfg(test)]
+const SERVICE_IMPORT_EXPORT: u32 = 39;
+#[cfg(test)]
+const IMPORT_ANKI_PACKAGE: u32 = 2;
 
 /// Version of the stable C ABI declared in `manki_anki_rust.h`.
 #[no_mangle]
@@ -631,7 +635,18 @@ fn extract_audio(
             _ => None,
         })
         .collect();
-    Ok((extracted.text, filenames))
+    Ok((strip_play_markers(extracted.text), filenames))
+}
+
+fn strip_play_markers(mut text: String) -> String {
+    const PREFIX: &str = "[anki:play:";
+    while let Some(start) = text.find(PREFIX) {
+        let Some(relative_end) = text[start..].find(']') else {
+            break;
+        };
+        text.replace_range(start..=start + relative_end, "");
+    }
+    text
 }
 
 fn now_millis() -> i64 {
@@ -859,5 +874,73 @@ unsafe fn set_output(data: Vec<u8>, out_data: *mut *mut u8, out_len: *mut usize)
     unsafe {
         *out_data = data;
         *out_len = len;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    fn demo_apkg_card_exposes_playable_question_audio() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test.apkg");
+        let test_dir = std::env::temp_dir().join(format!(
+            "manki-audio-test-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        fs::create_dir_all(&test_dir).unwrap();
+        let collection = test_dir.join("collection.anki2");
+        let media = test_dir.join("collection.media");
+
+        let cards = with_open_collection(collection.to_str().unwrap(), |backend| {
+            let _: anki_proto::import_export::ImportResponse = call(
+                backend,
+                SERVICE_IMPORT_EXPORT,
+                IMPORT_ANKI_PACKAGE,
+                anki_proto::import_export::ImportAnkiPackageRequest {
+                    package_path: fixture.display().to_string(),
+                    options: None,
+                },
+            )?;
+            deck_list(backend)
+        })
+        .unwrap();
+        let decks: Value = serde_json::from_slice(&cards).unwrap();
+        let deck_id = decks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|deck| deck["new"].as_u64().unwrap_or_default() > 0)
+            .unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let collection_path = std::ffi::CString::new(collection.to_str().unwrap()).unwrap();
+        let mut output = ptr::null_mut();
+        let mut output_len = 0;
+        let status = unsafe {
+            manki_anki_get_next_card(
+                collection_path.as_ptr(),
+                deck_id,
+                &mut output,
+                &mut output_len,
+            )
+        };
+        let card_bytes = unsafe { slice::from_raw_parts(output, output_len) };
+        assert_eq!(status, OK, "{}", String::from_utf8_lossy(card_bytes));
+        let card: Value = serde_json::from_slice(card_bytes).unwrap();
+        unsafe { manki_anki_free_response(output, output_len) };
+
+        assert_eq!(card["questionAudio"], json!(["de_glauben.mp3"]), "{card:#}");
+        assert!(!card["question"].as_str().unwrap().contains("anki:play"));
+        let sound = fs::read(media.join(card["questionAudio"][0].as_str().unwrap())).unwrap();
+        assert!(
+            sound.len() > 4_000,
+            "audio attachment should contain playable data"
+        );
+        assert_eq!(&sound[..3], b"ID3", "audio attachment should be an MP3");
+
+        fs::remove_dir_all(test_dir).unwrap();
     }
 }
