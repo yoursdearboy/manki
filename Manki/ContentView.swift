@@ -706,6 +706,7 @@ private struct ReviewerView: View {
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
         GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
             VStack(spacing: 24) {
                 Spacer(minLength: 0)
                 ZStack {
@@ -751,7 +752,11 @@ private struct ReviewerView: View {
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
                 .accessibilityHint(showingAnswer ? "Swipe down for Again, left for Hard, right for Good, or up for Easy" : "Tap to show the answer")
                 }
-                .frame(height: geometry.size.height * cardHeight)
+                .frame(
+                    width: isLandscape ? geometry.size.width * cardHeight : nil,
+                    height: isLandscape ? nil : geometry.size.height * cardHeight
+                )
+                .frame(maxHeight: isLandscape ? .infinity : nil)
                 .zIndex(1)
                 if showingAnswer {
                     VStack(spacing: 14) {
@@ -798,7 +803,7 @@ private struct ReviewerView: View {
     }
 
     private func visibleAudio(for card: ReviewCard) -> [String] {
-        showingAnswer ? card.answerAudio : card.questionAudio
+        showingAnswer ? card.questionAudio + card.answerAudio : card.questionAudio
     }
 
     private func playVisibleAudio() {
@@ -1036,8 +1041,9 @@ private struct MankiPrimaryButton: ButtonStyle {
     var expands = true
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.subheadline.weight(.heavy)).tracking(0.8).foregroundStyle(.white).padding(.horizontal, expands ? 0 : 24)
-            .frame(maxWidth: expands ? .infinity : nil).frame(height: 54)
+        configuration.label.font(.subheadline.weight(.heavy)).tracking(0.8).foregroundStyle(.white)
+            .frame(maxWidth: expands ? .infinity : nil)
+            .frame(width: expands ? nil : 192, height: 54)
             .background(configuration.isPressed ? MankiPalette.deepSky : MankiPalette.sky, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
             .overlay(alignment: .bottom) { RoundedRectangle(cornerRadius: 17, style: .continuous).fill(MankiPalette.deepSky).frame(height: 4).allowsHitTesting(false) }
             .scaleEffect(configuration.isPressed ? 0.98 : 1).animation(.easeOut(duration: 0.12), value: configuration.isPressed)

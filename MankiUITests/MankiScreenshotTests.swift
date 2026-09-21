@@ -80,6 +80,7 @@ final class MankiScreenshotTests: XCTestCase {
         XCTAssertTrue(question.waitForExistence(timeout: 10))
         question.tap()
         XCTAssertTrue(application.staticTexts["Buenos Aires"].waitForExistence(timeout: 5))
+        XCTAssertTrue(application.buttons["Replay audio"].exists)
     }
 
     @MainActor
@@ -185,6 +186,7 @@ final class MankiScreenshotTests: XCTestCase {
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(application.wait(for: .runningForeground, timeout: 5))
+        sleep(1)
         attachScreenshot(named: "\(name)-landscape.png")
         XCUIDevice.shared.orientation = .portrait
     }
