@@ -91,6 +91,14 @@ final class AnkiRSLibBackend {
         return try JSONDecoder().decode(ReviewCard?.self, from: data)
     }
 
+    static func reviewQueue(in deck: Deck) throws -> [ReviewCard] {
+        let collection = try collectionPath()
+        let data = try reviewCall { output, outputLength in
+            collection.withCString { manki_anki_get_review_queue($0, deck.id, output, outputLength) }
+        }
+        return try JSONDecoder().decode([ReviewCard].self, from: data)
+    }
+
     static func answer(_ card: ReviewCard, in deck: Deck, rating: CardRating, millisecondsTaken: UInt32) throws {
         let collection = try collectionPath()
         _ = try reviewCall { output, outputLength in

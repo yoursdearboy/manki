@@ -127,7 +127,7 @@ final class RSLibViewModel: ObservableObject {
     private let loadCachedDecks: () throws -> [Deck]
     private let fetchDecks: (String, String) throws -> [Deck]
     private let resolveFullSync: (String, String, FullSyncDirection) throws -> [Deck]
-    private let fetchNextCard: (Deck) throws -> ReviewCard?
+    private let fetchReviewQueue: (Deck) throws -> [ReviewCard]
     private let submitAnswer: (ReviewCard, Deck, CardRating, UInt32) throws -> Void
     private let setCardFlag: (ReviewCard, CardFlag) throws -> Void
     private let badgeController: AppIconBadgeController
@@ -137,6 +137,7 @@ final class RSLibViewModel: ObservableObject {
     private var hasQueuedPeriodicSync = false
     private var saveCredentialsAfterFullSync = false
     private var reviewRequestID = UUID()
+    private var reviewQueue: [ReviewCard] = []
 
     @Published private(set) var completedReviewDeckID: Int64?
 
@@ -147,7 +148,8 @@ final class RSLibViewModel: ObservableObject {
         loadCachedDecks: @escaping () throws -> [Deck] = AnkiRSLibBackend.loadCachedDecks,
         fetchDecks: @escaping (String, String) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
         resolveFullSync: @escaping (String, String, FullSyncDirection) throws -> [Deck] = AnkiRSLibBackend.fetchDecks,
-        fetchNextCard: @escaping (Deck) throws -> ReviewCard? = AnkiRSLibBackend.nextCard,
+        fetchNextCard: ((Deck) throws -> ReviewCard?)? = nil,
+        fetchReviewQueue: ((Deck) throws -> [ReviewCard])? = nil,
         submitAnswer: @escaping (ReviewCard, Deck, CardRating, UInt32) throws -> Void = AnkiRSLibBackend.answer,
         setCardFlag: @escaping (ReviewCard, CardFlag) throws -> Void = AnkiRSLibBackend.setFlag,
         badgeSetter: any AppIconBadgeSetting = UserNotificationBadgeSetter()
@@ -158,7 +160,9 @@ final class RSLibViewModel: ObservableObject {
         self.loadCachedDecks = loadCachedDecks
         self.fetchDecks = fetchDecks
         self.resolveFullSync = resolveFullSync
-        self.fetchNextCard = fetchNextCard
+        self.fetchReviewQueue = fetchReviewQueue ?? fetchNextCard.map { fetch in
+            { deck in try fetch(deck).map { [$0] } ?? [] }
+        } ?? AnkiRSLibBackend.reviewQueue
         self.submitAnswer = submitAnswer
         self.setCardFlag = setCardFlag
         badgeController = AppIconBadgeController(setter: badgeSetter)
@@ -242,6 +246,7 @@ final class RSLibViewModel: ObservableObject {
         lastSynced = nil
         isAuthenticated = false
         reviewCard = nil
+        reviewQueue = []
         activeReviewDeckID = nil
         hasQueuedPeriodicSync = false
         saveCredentialsAfterFullSync = false
@@ -262,6 +267,7 @@ final class RSLibViewModel: ObservableObject {
         activeReviewDeckID = deck.id
         completedReviewDeckID = nil
         reviewCard = nil
+        reviewQueue = []
         errorMessage = nil
         // Sync updates rslib's scheduler and collection together. Do not ask
         // for a card from that transient state, where an empty queue could be
@@ -274,20 +280,21 @@ final class RSLibViewModel: ObservableObject {
         let requestID = UUID()
         reviewRequestID = requestID
         do {
-            let card = try await Task.detached(priority: .userInitiated) { [fetchNextCard] in
-                let card = try fetchNextCard(deck)
-                guard card == nil,
+            let cards = try await Task.detached(priority: .userInitiated) { [fetchReviewQueue] in
+                let cards = try fetchReviewQueue(deck)
+                guard cards.isEmpty,
                       deck.newCount > 0 || deck.learnCount > 0 || deck.dueCount > 0 else {
-                    return card
+                    return cards
                 }
                 // The deck list and scheduler queue are loaded by separate
                 // rslib calls. Retry once when their snapshots briefly differ
                 // instead of presenting a false "all caught up" state.
-                return try fetchNextCard(deck)
+                return try fetchReviewQueue(deck)
             }.value
             guard reviewRequestID == requestID, activeReviewDeckID == deck.id else { return }
-            reviewCard = card
-            if card == nil { completedReviewDeckID = deck.id }
+            reviewQueue = Array(cards.dropFirst())
+            reviewCard = cards.first
+            if cards.isEmpty { completedReviewDeckID = deck.id }
         } catch {
             guard reviewRequestID == requestID, activeReviewDeckID == deck.id else { return }
             errorMessage = error.localizedDescription
@@ -301,6 +308,7 @@ final class RSLibViewModel: ObservableObject {
         activeReviewDeckID = nil
         reviewRequestID = UUID()
         reviewCard = nil
+        reviewQueue = []
         isReviewLoading = false
         completedReviewDeckID = nil
         guard hasQueuedPeriodicSync else { return }
@@ -315,16 +323,47 @@ final class RSLibViewModel: ObservableObject {
         }
         isReviewLoading = true
         errorMessage = nil
+        let prefetchedCard = reviewQueue.first
+        if prefetchedCard != nil {
+            reviewQueue.removeFirst()
+            reviewCard = prefetchedCard
+            isReviewLoading = false
+        }
         do {
             let milliseconds = UInt32(min(max(elapsed * 1_000, 1), Double(UInt32.max)))
             try await Task.detached(priority: .userInitiated) { [submitAnswer] in
                 try submitAnswer(card, deck, rating, milliseconds)
             }.value
             await refreshDueCounts()
-            if activeReviewDeckID == deck.id { await loadNextCard(in: deck) }
+            if activeReviewDeckID == deck.id {
+                if let prefetchedCard {
+                    await refillReviewQueue(in: deck, after: prefetchedCard)
+                } else {
+                    await loadNextCard(in: deck)
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
+            if let prefetchedCard {
+                reviewQueue.insert(prefetchedCard, at: 0)
+                reviewCard = card
+            }
             isReviewLoading = false
+        }
+    }
+
+    private func refillReviewQueue(in deck: Deck, after visibleCard: ReviewCard) async {
+        do {
+            let cards = try await Task.detached(priority: .utility) { [fetchReviewQueue] in
+                try fetchReviewQueue(deck)
+            }.value
+            guard activeReviewDeckID == deck.id,
+                  reviewCard?.id == visibleCard.id,
+                  let visibleIndex = cards.firstIndex(where: { $0.id == visibleCard.id }) else { return }
+            reviewQueue = Array(cards.dropFirst(visibleIndex + 1))
+        } catch {
+            guard activeReviewDeckID == deck.id else { return }
+            errorMessage = error.localizedDescription
         }
     }
 

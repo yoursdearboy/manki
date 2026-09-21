@@ -172,6 +172,14 @@ int manki_anki_get_next_card(
     size_t *out_len
 );
 
+/** Returns up to five rendered due cards as a UTF-8 JSON array. */
+int manki_anki_get_review_queue(
+    const char *collection_path,
+    int64_t deck_id,
+    uint8_t **out_data,
+    size_t *out_len
+);
+
 /**
  * Applies an Anki scheduler rating (0 Again, 1 Hard, 2 Good, 3 Easy) to the
  * current queued card. Free the response with manki_anki_free_response().
