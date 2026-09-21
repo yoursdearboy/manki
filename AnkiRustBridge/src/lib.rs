@@ -395,6 +395,45 @@ pub unsafe extern "C" fn manki_anki_get_next_card(
     })
 }
 
+/// Retrieves a small, rendered scheduler queue so clients can transition
+/// between cards without waiting for another collection open/render cycle.
+#[no_mangle]
+pub unsafe extern "C" fn manki_anki_get_review_queue(
+    collection_path: *const c_char,
+    deck_id: i64,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    review_operation(collection_path, out_data, out_len, |backend| {
+        select_deck(backend, deck_id)?;
+        let queued = queued_cards(backend)?;
+        let mut cards = Vec::new();
+        for item in queued.cards {
+            let card = item.card.ok_or("scheduler returned a card without an id")?;
+            let rendered: RenderCardResponse = call(
+                backend,
+                SERVICE_CARD_RENDERING,
+                RENDER_EXISTING_CARD,
+                RenderExistingCardRequest {
+                    card_id: card.id,
+                    browser: false,
+                    partial_render: false,
+                },
+            )?;
+            let (question, question_audio) =
+                extract_audio(backend, rendered_text(rendered.question_nodes), true)?;
+            let (answer, answer_audio) =
+                extract_audio(backend, rendered_text(rendered.answer_nodes), false)?;
+            cards.push(json!({
+                "id": card.id, "question": question, "answer": answer,
+                "questionAudio": question_audio, "answerAudio": answer_audio,
+                "flag": card.flags & 7,
+            }));
+        }
+        serde_json::to_vec(&cards).map_err(|error| format!("could not encode cards: {error}"))
+    })
+}
+
 /// Re-fetches the queued card's states and delegates its scheduling to rslib.
 #[no_mangle]
 pub unsafe extern "C" fn manki_anki_answer_card(
@@ -596,7 +635,7 @@ fn queued_cards(backend: &Backend) -> Result<QueuedCards, String> {
         SERVICE_SCHEDULER,
         GET_QUEUED_CARDS,
         GetQueuedCardsRequest {
-            fetch_limit: 1,
+            fetch_limit: 5,
             intraday_learning_only: false,
         },
     )

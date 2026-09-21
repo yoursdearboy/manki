@@ -247,6 +247,34 @@ final class RSLibViewModelTests: XCTestCase {
         XCTAssertNil(model.completedReviewDeckID)
     }
 
+    func testAnswerImmediatelyShowsPrefetchedCard() async throws {
+        let deck = try deck(id: 1, name: "Deck", due: 2)
+        let first = ReviewCard(id: 10, question: "First", answer: "Answer")
+        let second = ReviewCard(id: 20, question: "Second", answer: "Answer")
+        let answerStarted = expectation(description: "answer started")
+        let gate = DispatchSemaphore(value: 0)
+        let model = RSLibViewModel(
+            decks: [deck],
+            isAuthenticated: true,
+            loadCachedDecks: { [deck] },
+            fetchReviewQueue: { _ in [first, second] },
+            submitAnswer: { _, _, _, _ in
+                answerStarted.fulfill()
+                gate.wait()
+            },
+            badgeSetter: NoopBadgeSetter()
+        )
+        await model.loadNextCard(in: deck)
+
+        let answering = Task { await model.answer(first, in: deck, rating: .good, elapsed: 1) }
+        await fulfillment(of: [answerStarted], timeout: 2)
+
+        XCTAssertEqual(model.reviewCard, second)
+        XCTAssertFalse(model.isReviewLoading)
+        gate.signal()
+        await answering.value
+    }
+
     func testObsoleteDeckRequestCannotReplaceCurrentCard() async throws {
         let slowDeck = try deck(id: 1, name: "Slow")
         let currentDeck = try deck(id: 2, name: "Current")
