@@ -22,13 +22,13 @@ private extension CardFlag {
     var color: Color {
         switch self {
         case .none: return .secondary
-        case .red: return .red
-        case .orange: return .orange
-        case .green: return .green
-        case .blue: return .blue
-        case .pink: return .pink
-        case .turquoise: return .cyan
-        case .purple: return .purple
+        case .red: return Color(red: 1.00, green: 0.44, blue: 0.44)
+        case .orange: return Color(red: 1.00, green: 0.73, blue: 0.45)
+        case .green: return Color(red: 0.47, green: 0.93, blue: 0.68)
+        case .blue: return Color(red: 0.33, green: 0.66, blue: 0.98)
+        case .pink: return Color(red: 0.96, green: 0.68, blue: 0.99)
+        case .turquoise: return Color(red: 0.26, green: 0.92, blue: 0.84)
+        case .purple: return Color(red: 0.76, green: 0.54, blue: 0.99)
         }
     }
 
@@ -103,7 +103,7 @@ struct ContentView: View {
     private var decksScreen: some View {
         NavigationStack(path: $deckPath) {
             ZStack {
-                MankiPalette.canvas.ignoresSafeArea()
+                MankiPalette.mist.ignoresSafeArea()
                 if model.isSyncing && model.decks.isEmpty {
                     ProgressView("Building your study space…").tint(MankiPalette.sky)
                 } else if model.decks.isEmpty {
@@ -112,10 +112,6 @@ struct ContentView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 18) {
                             dashboardHeader
-                            Text("your decks")
-                                .font(.system(size: 28, weight: .heavy, design: .rounded))
-                                .foregroundStyle(MankiPalette.ink)
-                                .padding(.horizontal, 24).padding(.top, 8)
                             ForEach(Array(model.decks.enumerated()), id: \.element.id) { index, deck in
                                 NavigationLink(value: deck.id) {
                                     DeckRow(deck: deck, accent: deckAccent(for: index))
@@ -188,14 +184,16 @@ struct ContentView: View {
     }
 
     private var dashboardHeader: some View {
-        HStack(alignment: .bottom, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("hello, learner").font(.system(size: 34, weight: .heavy, design: .rounded)).foregroundStyle(MankiPalette.ink)
-                Text("Small reviews. Lasting memory.").font(.subheadline.weight(.medium)).foregroundStyle(MankiPalette.softInk)
+        HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Hello, learner")
+                Text("your decks")
             }
+            .font(.system(size: 31, weight: .heavy, design: .rounded))
+            .foregroundStyle(MankiPalette.ink)
             Spacer(minLength: 0)
-            StudySpark().frame(width: 82, height: 82)
-        }.padding(.horizontal, 24).padding(.top, 26).padding(.bottom, 6)
+            StudySpark().frame(width: 94, height: 94)
+        }.padding(.horizontal, 24).padding(.top, 26).padding(.bottom, 20)
     }
 
     private var emptyDecks: some View {
@@ -635,7 +633,6 @@ private struct ReviewerView: View {
         ZStack {
             MankiPalette.mist.ignoresSafeArea()
             VStack(spacing: 30) {
-                Text(deck.name).font(.caption.weight(.bold)).foregroundStyle(MankiPalette.deepSky).textCase(.uppercase).tracking(1.2).lineLimit(1)
                 if model.isSyncing && model.reviewCard == nil {
                     ProgressView("Syncing your collection…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if model.isReviewLoading && model.reviewCard == nil {
@@ -652,6 +649,14 @@ private struct ReviewerView: View {
             }.padding(20)
         }.navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(deck.name)
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(MankiPalette.deepSky)
+                        .textCase(.uppercase)
+                        .tracking(1.2)
+                        .lineLimit(1)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if let card = model.reviewCard {
                         Menu {
