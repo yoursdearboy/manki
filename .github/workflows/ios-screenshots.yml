@@ -56,7 +56,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.RUST_FRAMEWORK_PATH }}
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-manki-anki-rust-${{ hashFiles('AnkiRustBridge/Cargo.toml', 'AnkiRustBridge/Cargo.lock', 'AnkiRustBridge/src/**', 'AnkiRustBridge/include/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
 
       # Pull-request caches are scoped to refs/pull/*/merge. Reuse a
       # content-addressed artifact when GitHub's cache scoping prevents a hit.
@@ -64,7 +64,7 @@ jobs:
         if: steps.rust-framework-cache.outputs.cache-hit != 'true'
         uses: actions/github-script@v8
         env:
-          ARTIFACT_NAME: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          ARTIFACT_NAME: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/Cargo.toml', 'AnkiRustBridge/Cargo.lock', 'AnkiRustBridge/src/**', 'AnkiRustBridge/include/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
         with:
           script: |
             const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
@@ -110,7 +110,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.RUST_FRAMEWORK_PATH }}
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-manki-anki-rust-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-manki-anki-rust-${{ hashFiles('AnkiRustBridge/Cargo.toml', 'AnkiRustBridge/Cargo.lock', 'AnkiRustBridge/src/**', 'AnkiRustBridge/include/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
 
       # Artifacts are repository-wide, so this also reuses a simulator build
       # from the default branch when Actions cache scoping prevents a hit.
@@ -118,7 +118,7 @@ jobs:
         if: steps.rust-framework.outputs.restored != 'true' && steps.simulator-framework-cache.outputs.cache-hit != 'true'
         uses: actions/github-script@v8
         env:
-          ARTIFACT_NAME: MankiAnkiRust-simulator-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          ARTIFACT_NAME: MankiAnkiRust-simulator-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-${{ hashFiles('AnkiRustBridge/Cargo.toml', 'AnkiRustBridge/Cargo.lock', 'AnkiRustBridge/src/**', 'AnkiRustBridge/include/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
         with:
           script: |
             const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
@@ -194,7 +194,7 @@ jobs:
         if: steps.rust-framework.outputs.restored != 'true' && steps.simulator-framework.outputs.restored != 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: MankiAnkiRust-simulator-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          name: MankiAnkiRust-simulator-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-ios-arm64-simulator-${{ hashFiles('AnkiRustBridge/Cargo.toml', 'AnkiRustBridge/Cargo.lock', 'AnkiRustBridge/src/**', 'AnkiRustBridge/include/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
           path: ${{ env.RUST_FRAMEWORK_PATH }}/
           if-no-files-found: error
           retention-days: 7
@@ -250,7 +250,7 @@ jobs:
         if: success() && steps.rust-framework.outputs.restored != 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
+          name: MankiAnkiRust-xcframework-${{ runner.os }}-${{ runner.arch }}-xcode-${{ env.XCODE_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ env.RUST_TARGETS }}-${{ hashFiles('AnkiRustBridge/Cargo.toml', 'AnkiRustBridge/Cargo.lock', 'AnkiRustBridge/src/**', 'AnkiRustBridge/include/**', 'scripts/bootstrap-anki-rslib.sh', 'scripts/build-anki-xcframework.sh') }}
           path: ${{ env.RUST_FRAMEWORK_PATH }}/
           if-no-files-found: error
           retention-days: 7
