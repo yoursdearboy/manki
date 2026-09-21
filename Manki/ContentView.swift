@@ -584,6 +584,34 @@ private struct DeckSchedulerLegend: View {
     }
 }
 
+private struct DeckStackPosition {
+    let rotation: Double
+    let xOffset: CGFloat
+    let yOffset: CGFloat
+
+    static func makeStack() -> [Self] {
+        (0..<5).map { level in
+            Self(
+                rotation: Double.random(in: -2...2),
+                xOffset: CGFloat.random(in: -4...4),
+                yOffset: CGFloat(level) * 3 + CGFloat.random(in: -1...1)
+            )
+        }
+    }
+}
+
+private extension Array where Element == DeckStackPosition {
+    mutating func rotate() {
+        guard !isEmpty else { return }
+        removeFirst()
+        append(DeckStackPosition(
+            rotation: Double.random(in: -2...2),
+            xOffset: CGFloat.random(in: -4...4),
+            yOffset: CGFloat(count) * 3 + CGFloat.random(in: -1...1)
+        ))
+    }
+}
+
 private struct ReviewerView: View {
     @ObservedObject var model: RSLibViewModel
     let deck: Deck
@@ -591,7 +619,9 @@ private struct ReviewerView: View {
     @State private var shownAt = Date.now
     @State private var cardOffset = CGSize.zero
     @State private var isSubmittingSwipe = false
+    @State private var buttonPreviewRating: CardRating?
     @State private var cardHeight: Double
+    @State private var stackPositions = DeckStackPosition.makeStack()
     @StateObject private var audioPlayer = CardAudioPlayer()
 
     init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
@@ -655,7 +685,11 @@ private struct ReviewerView: View {
             }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onChange(of: model.reviewCard?.id, initial: true) { previousCardID, cardID in
-                if previousCardID != nil, previousCardID != cardID { showingAnswer = false }
+                if previousCardID != nil, previousCardID != cardID {
+                    showingAnswer = false
+                    stackPositions.rotate()
+                }
+                buttonPreviewRating = nil
                 playVisibleAudio()
             }
             .onChange(of: showingAnswer) { _, _ in
@@ -672,10 +706,12 @@ private struct ReviewerView: View {
 
     @ViewBuilder private func reviewContent(_ card: ReviewCard) -> some View {
         GeometryReader { geometry in
-            VStack(spacing: 34) {
+            VStack(spacing: 24) {
+                Spacer(minLength: 0)
                 ZStack {
-                reviewCardBacking(rotation: -3, xOffset: -5, yOffset: 7)
-                reviewCardBacking(rotation: 2, xOffset: 5, yOffset: 3)
+                ForEach(Array(1..<visibleCardCount), id: \.self) { index in
+                    reviewCardBacking(position: stackPositions[index])
+                }
                 VStack(alignment: .leading, spacing: 18) {
                     Text("question").font(.caption.weight(.bold)).foregroundStyle(MankiPalette.sky).textCase(.uppercase).tracking(1)
                     ViewThatFits(in: .vertical) {
@@ -689,10 +725,14 @@ private struct ReviewerView: View {
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(MankiPalette.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .background(MankiPalette.canvas, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(swipeRating.map(color(for:)) ?? MankiPalette.sky.opacity(0.18), lineWidth: swipeRating == nil ? 1.5 : 5)
+                        .fill(activeRating.map { color(for: $0).opacity(0.10) } ?? .clear)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(activeRating.map(color(for:)) ?? MankiPalette.sky.opacity(0.18), lineWidth: activeRating == nil ? 1.5 : 5)
                 }
                 .overlay(alignment: .topTrailing) {
                     if let flag = CardFlag(rawValue: card.flag), flag != .none {
@@ -703,27 +743,28 @@ private struct ReviewerView: View {
                             .accessibilityLabel("\(flag.title) flag")
                     }
                 }
-                .shadow(color: swipeRating.map { color(for: $0).opacity(0.48) } ?? .clear, radius: 20)
-                .offset(cardOffset)
-                .rotationEffect(.degrees(Double(cardOffset.width / 22)))
+                .shadow(color: activeRating.map { color(for: $0).opacity(0.48) } ?? .clear, radius: 20)
+                .offset(x: stackPositions[0].xOffset + cardOffset.width, y: stackPositions[0].yOffset + cardOffset.height)
+                .rotationEffect(.degrees(stackPositions[0].rotation + Double(cardOffset.width / 22)))
                 .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .gesture(swipeGesture(for: card))
                 .onTapGesture { if !showingAnswer { showingAnswer = true } }
                 .accessibilityHint(showingAnswer ? "Swipe down for Again, left for Hard, right for Good, or up for Easy" : "Tap to show the answer")
                 }
                 .frame(height: geometry.size.height * cardHeight)
+                .zIndex(1)
                 if showingAnswer {
                     VStack(spacing: 14) {
                         replayButton(for: card)
                         HStack(spacing: 8) {
                             ForEach(CardRating.allCases) { rating in
                                 Button(rating.title) {
-                                    Task { await model.answer(card, in: deck, rating: rating, elapsed: Date.now.timeIntervalSince(shownAt)); showingAnswer = false; shownAt = .now }
+                                    submitFromButton(card, rating: rating)
                                 }
                                 .buttonStyle(ReviewRatingButton(
                                     color: color(for: rating)
                                 ))
-                                .disabled(model.isReviewLoading)
+                                .disabled(model.isReviewLoading || isSubmittingSwipe)
                             }
                         }
                     }
@@ -736,7 +777,7 @@ private struct ReviewerView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -744,8 +785,14 @@ private struct ReviewerView: View {
         if !visibleAudio(for: card).isEmpty {
             Button { playVisibleAudio() } label: {
                 Label("Replay audio", systemImage: "speaker.wave.2.fill")
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                    .textCase(.uppercase)
+                    .tracking(1)
+                    .frame(width: 192, height: 52)
             }
+            .foregroundStyle(MankiPalette.sky)
+            .background(MankiPalette.sky.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(MankiPalette.sky.opacity(0.18), lineWidth: 1) }
             .accessibilityHint("Plays the audio attached to this side of the card again")
         }
     }
@@ -779,12 +826,22 @@ private struct ReviewerView: View {
         return CardSwipe.rating(for: cardOffset)
     }
 
-    private func reviewCardBacking(rotation: Double, xOffset: CGFloat, yOffset: CGFloat) -> some View {
+    private var activeRating: CardRating? {
+        buttonPreviewRating ?? swipeRating
+    }
+
+    private var visibleCardCount: Int {
+        let currentDeck = model.decks.first(where: { $0.id == deck.id }) ?? deck
+        let scheduledCards = currentDeck.newCount + currentDeck.learnCount + currentDeck.dueCount
+        return min(5, max(1, scheduledCards))
+    }
+
+    private func reviewCardBacking(position: DeckStackPosition) -> some View {
         RoundedRectangle(cornerRadius: 28, style: .continuous)
-            .fill(MankiPalette.surface)
+            .fill(MankiPalette.canvas)
             .overlay { RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(MankiPalette.sky.opacity(0.12), lineWidth: 1.5) }
-            .rotationEffect(.degrees(rotation))
-            .offset(x: xOffset, y: yOffset)
+            .rotationEffect(.degrees(position.rotation))
+            .offset(x: position.xOffset, y: position.yOffset)
             .padding(.horizontal, 5)
             .allowsHitTesting(false)
     }
@@ -807,7 +864,34 @@ private struct ReviewerView: View {
     }
 
     private func submit(_ card: ReviewCard, rating: CardRating) {
+        guard !isSubmittingSwipe else { return }
         isSubmittingSwipe = true
+        dismiss(card, rating: rating)
+    }
+
+    private func submitFromButton(_ card: ReviewCard, rating: CardRating) {
+        guard !isSubmittingSwipe else { return }
+        isSubmittingSwipe = true
+        buttonPreviewRating = rating
+        withAnimation(.easeOut(duration: 0.20)) {
+            cardOffset = previewOffset(for: rating)
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            dismiss(card, rating: rating)
+        }
+    }
+
+    private func previewOffset(for rating: CardRating) -> CGSize {
+        switch rating {
+        case .again: CGSize(width: 0, height: 45)
+        case .hard: CGSize(width: -50, height: 0)
+        case .good: CGSize(width: 50, height: 0)
+        case .easy: CGSize(width: 0, height: -45)
+        }
+    }
+
+    private func dismiss(_ card: ReviewCard, rating: CardRating) {
         let distance: CGFloat = 900
         let destination: CGSize
         switch rating {
@@ -823,6 +907,7 @@ private struct ReviewerView: View {
             showingAnswer = false
             shownAt = .now
             cardOffset = .zero
+            buttonPreviewRating = nil
             isSubmittingSwipe = false
         }
     }
