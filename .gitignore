@@ -10,3 +10,4 @@ xcuserdata/
 *.anki2-shm
 *.anki2-wal
 /*.mobileprovision
+.agents
