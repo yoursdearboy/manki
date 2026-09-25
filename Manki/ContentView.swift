@@ -719,6 +719,7 @@ private struct ReviewerView: View {
     @State private var activeEditorMode: CardEditorMode?
     @State private var isNavigatingToDeckSettings = false
 
+    @MainActor
     init(model: RSLibViewModel, deck: Deck, notifications: NotificationSettings = NotificationSettings(), initiallyShowingAnswer: Bool = false) {
         self.model = model
         self.deck = deck
