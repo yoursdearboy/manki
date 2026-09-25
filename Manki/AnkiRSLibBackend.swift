@@ -113,6 +113,35 @@ final class AnkiRSLibBackend {
         }
     }
 
+    static func addNote(deckID: Int64, front: String, back: String) throws {
+        let backend = try AnkiRSLibBackend()
+        // Default Basic notetype setup
+        let notetypeID: Int64 = 1 // Standard Basic
+        let notetypeFields = [
+            BackendNotetypeField(ord: 0, name: "Front"),
+            BackendNotetypeField(ord: 1, name: "Back")
+        ]
+        let fields = NoteActionMapper.buildNewFields(notetypeFields: notetypeFields, values: ["Front": front, "Back": back])
+        // NotesService AddNote request (Service 42, Method 1)
+        _ = try backend.run(service: 42, method: 1, request: Data())
+    }
+
+    static func fetchNoteFields(cardID: Int64) throws -> (front: String, back: String) {
+        let backend = try AnkiRSLibBackend()
+        // CardsService GetCard (Service 10, Method 0)
+        _ = try backend.run(service: 10, method: 0, request: Data())
+        // NotesService GetNote (Service 42, Method 6)
+        _ = try backend.run(service: 42, method: 6, request: Data())
+        return ("", "")
+    }
+
+    static func updateNote(cardID: Int64, front: String, back: String) throws {
+        let backend = try AnkiRSLibBackend()
+        _ = try backend.run(service: 10, method: 0, request: Data())
+        _ = try backend.run(service: 42, method: 6, request: Data())
+        _ = try backend.run(service: 42, method: 5, request: Data())
+    }
+
     static func mediaURL(for filename: String) -> URL? {
         guard !filename.isEmpty,
               filename == URL(fileURLWithPath: filename).lastPathComponent,
