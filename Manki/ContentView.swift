@@ -35,6 +35,100 @@ private extension CardFlag {
     var systemImage: String { self == .none ? "flag.slash" : "flag.fill" }
 }
 
+enum CardEditorMode: Identifiable {
+    case add(deckID: Int64)
+    case edit(cardID: Int64, initialFront: String, initialBack: String)
+
+    var id: String {
+        switch self {
+        case let .add(deckID): return "add-\(deckID)"
+        case let .edit(cardID, _, _): return "edit-\(cardID)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .add: return "Add Card"
+        case .edit: return "Edit Card"
+        }
+    }
+}
+
+struct CardEditorSheet: View {
+    let mode: CardEditorMode
+    @ObservedObject var model: RSLibViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var front: String = ""
+    @State private var back: String = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(mode: CardEditorMode, model: RSLibViewModel) {
+        self.mode = mode
+        self.model = model
+        if case let .edit(_, initialFront, initialBack) = mode {
+            _front = State(initialValue: initialFront)
+            _back = State(initialValue: initialBack)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("FRONT") {
+                    TextField("Question / Front text", text: $front, axis: .vertical)
+                        .lineLimit(3...8)
+                        .accessibilityIdentifier("card-editor-front")
+                }
+                Section("BACK") {
+                    TextField("Answer / Back text", text: $back, axis: .vertical)
+                        .lineLimit(3...8)
+                        .accessibilityIdentifier("card-editor-back")
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
+                }
+            }
+            .navigationTitle(mode.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await save() }
+                    }
+                    .disabled(isSaving || front.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        guard !isSaving else { return }
+        isSaving = true
+        errorMessage = nil
+        do {
+            switch mode {
+            case let .add(deckID):
+                try await model.addCard(deckID: deckID, front: front, back: back)
+            case let .edit(cardID, _, _):
+                try await model.updateCurrentCard(cardID: cardID, front: front, back: back)
+            }
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            isSaving = false
+        }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var model: RSLibViewModel
     @StateObject private var notifications = NotificationSettings()
@@ -53,11 +147,11 @@ struct ContentView: View {
         Group {
             switch fixture {
             case .reviewQuestion, .redFlagCard:
-                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0]) }
+                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], notifications: notifications) }
             case .reviewAnswer:
-                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], initiallyShowingAnswer: true) }
+                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], notifications: notifications, initiallyShowingAnswer: true) }
             case .allCaughtUp:
-                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0]) }
+                NavigationStack { ReviewerView(model: model, deck: RSLibViewModel.fixtureDecks[0], notifications: notifications) }
             default:
                 if model.isAuthenticated { decksScreen } else { signInScreen }
             }
@@ -141,7 +235,7 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Int64.self) { deckID in
                 if let deck = model.decks.first(where: { $0.id == deckID }) {
-                    ReviewerView(model: model, deck: deck)
+                    ReviewerView(model: model, deck: deck, notifications: notifications)
                 }
             }
             .toolbar {
@@ -613,6 +707,7 @@ private extension Array where Element == DeckStackPosition {
 private struct ReviewerView: View {
     @ObservedObject var model: RSLibViewModel
     let deck: Deck
+    @ObservedObject var notifications: NotificationSettings
     @State private var showingAnswer: Bool
     @State private var shownAt = Date.now
     @State private var cardOffset = CGSize.zero
@@ -621,10 +716,13 @@ private struct ReviewerView: View {
     @State private var cardHeight: Double
     @State private var stackPositions = DeckStackPosition.makeStack()
     @StateObject private var audioPlayer = CardAudioPlayer()
+    @State private var activeEditorMode: CardEditorMode?
+    @State private var isNavigatingToDeckSettings = false
 
-    init(model: RSLibViewModel, deck: Deck, initiallyShowingAnswer: Bool = false) {
+    init(model: RSLibViewModel, deck: Deck, notifications: NotificationSettings = NotificationSettings(), initiallyShowingAnswer: Bool = false) {
         self.model = model
         self.deck = deck
+        self.notifications = notifications
         _showingAnswer = State(initialValue: initiallyShowingAnswer)
         _cardHeight = State(initialValue: ReviewCardSettings().height(for: deck.id))
     }
@@ -658,8 +756,26 @@ private struct ReviewerView: View {
                         .lineLimit(1)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if let card = model.reviewCard {
-                        Menu {
+                    Menu {
+                        Button {
+                            activeEditorMode = .add(deckID: deck.id)
+                        } label: {
+                            Label("Add new card", systemImage: "plus.circle")
+                        }
+
+                        if let card = model.reviewCard {
+                            Button {
+                                Task {
+                                    if let fields = try? await model.fetchCurrentNoteFields(cardID: card.id) {
+                                        activeEditorMode = .edit(cardID: card.id, initialFront: fields.front, initialBack: fields.back)
+                                    } else {
+                                        activeEditorMode = .edit(cardID: card.id, initialFront: card.question, initialBack: card.answer)
+                                    }
+                                }
+                            } label: {
+                                Label("Edit card", systemImage: "pencil")
+                            }
+
                             Menu {
                                 ForEach(CardFlag.allCases) { flag in
                                     Button {
@@ -681,12 +797,24 @@ private struct ReviewerView: View {
                             } label: {
                                 Label("Flag card", systemImage: "flag.fill")
                             }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
                         }
-                        .accessibilityLabel("Card actions")
+
+                        Button {
+                            isNavigatingToDeckSettings = true
+                        } label: {
+                            Label("Deck settings", systemImage: "slider.horizontal.3")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Card actions")
                 }
+            }
+            .navigationDestination(isPresented: $isNavigatingToDeckSettings) {
+                DeckSettingsView(model: model, notifications: notifications, deck: deck)
+            }
+            .sheet(item: $activeEditorMode) { mode in
+                CardEditorSheet(mode: mode, model: model)
             }
             .task(id: deck.id) { shownAt = .now; await model.loadNextCard(in: deck) }
             .onChange(of: model.reviewCard?.id, initial: true) { previousCardID, cardID in
