@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import Manki
 
-final class NoteActionMapperTests: XCTestCase {
+final class ReviewCardActionsBackendTests: XCTestCase {
     func testBuildNewFieldsByFieldName() {
         let notetypeFields = [
             BackendNotetypeField(ord: 0, name: "Front"),
@@ -48,5 +48,22 @@ final class NoteActionMapperTests: XCTestCase {
         )
 
         XCTAssertEqual(updated, ["Updated Q", "Updated A"])
+    }
+
+    func testProtoWriterAndReaderRoundtrip() {
+        var writer = ProtoWriter()
+        writer.writeVarintField(fieldNumber: 1, value: 12345)
+        writer.writeStringField(fieldNumber: 2, value: "test-guid")
+        writer.writeStringField(fieldNumber: 6, value: "tag1")
+        writer.writeStringField(fieldNumber: 6, value: "tag2")
+
+        let reader = ProtoReader(data: writer.data)
+        XCTAssertEqual(reader.readInt64Field(fieldNumber: 1), 12345)
+        XCTAssertEqual(reader.readRepeatedStringField(fieldNumber: 6), ["tag1", "tag2"])
+
+        let rawNote = ProtoReader.parseRawNote(data: writer.data)
+        XCTAssertEqual(rawNote.id, 12345)
+        XCTAssertEqual(rawNote.guid, "test-guid")
+        XCTAssertEqual(rawNote.tags, ["tag1", "tag2"])
     }
 }
