@@ -104,10 +104,10 @@ struct ProtoReader {
         while offset < data.count {
             guard let (key, nextOffset) = readVarint(data: data, at: offset) else { break }
             offset = nextOffset
-            let field = Int(key >> 3)
+            let fieldNumber = Int(key >> 3)
             let wireType = Int(key & 7)
 
-            switch (field, wireType) {
+            switch (fieldNumber, wireType) {
             case (1, 0):
                 if let (val, _) = readVarint(data: data, at: offset) { note.id = Int64(bitPattern: val) }
             case (2, 2):
@@ -354,47 +354,50 @@ final class AnkiRSLibBackend {
 
     static func addNote(deckID: Int64, front: String, back: String) throws {
         let backend = try AnkiRSLibBackend()
-        let defaultsRequest = ProtoWriter()
-            .writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: deckID))
-            .data
-        let defaultsData = try backend.run(service: 42, method: 3, request: defaultsRequest)
+        var defaultsRequestWriter = ProtoWriter()
+        _ = defaultsRequestWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: deckID))
+        let defaultsData = try backend.run(service: 42, method: 3, request: defaultsRequestWriter.data)
         let defaults = ProtoReader(data: defaultsData)
         let notetypeID = defaults.readInt64Field(fieldNumber: 2) ?? 1
 
-        let notetypeReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: notetypeID)).data
-        let notetypeData = try backend.run(service: 12, method: 6, request: notetypeReq)
+        var notetypeReqWriter = ProtoWriter()
+        _ = notetypeReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: notetypeID))
+        let notetypeData = try backend.run(service: 12, method: 6, request: notetypeReqWriter.data)
         let notetypeFields = ProtoReader.parseNotetypeFields(data: notetypeData)
 
         let fieldValues = NoteActionMapper.buildNewFields(notetypeFields: notetypeFields, values: ["Front": front, "Back": back])
 
         var noteWriter = ProtoWriter()
-        noteWriter.writeVarintField(fieldNumber: 3, value: UInt64(bitPattern: notetypeID))
+        _ = noteWriter.writeVarintField(fieldNumber: 3, value: UInt64(bitPattern: notetypeID))
         for field in fieldValues {
-            noteWriter.writeStringField(fieldNumber: 7, value: field)
+            _ = noteWriter.writeStringField(fieldNumber: 7, value: field)
         }
 
         var addNoteReqWriter = ProtoWriter()
-        addNoteReqWriter.writeMessageField(fieldNumber: 1, messageData: noteWriter.data)
-        addNoteReqWriter.writeVarintField(fieldNumber: 2, value: UInt64(bitPattern: deckID))
+        _ = addNoteReqWriter.writeMessageField(fieldNumber: 1, messageData: noteWriter.data)
+        _ = addNoteReqWriter.writeVarintField(fieldNumber: 2, value: UInt64(bitPattern: deckID))
 
         _ = try backend.run(service: 42, method: 1, request: addNoteReqWriter.data)
     }
 
     static func fetchNoteFields(cardID: Int64) throws -> (front: String, back: String) {
         let backend = try AnkiRSLibBackend()
-        let cardReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: cardID)).data
-        let cardData = try backend.run(service: 10, method: 0, request: cardReq)
+        var cardReqWriter = ProtoWriter()
+        _ = cardReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: cardID))
+        let cardData = try backend.run(service: 10, method: 0, request: cardReqWriter.data)
         let cardReader = ProtoReader(data: cardData)
         guard let noteID = cardReader.readInt64Field(fieldNumber: 2) else {
             throw AnkiRSLibError.reviewFailed("Card not found")
         }
 
-        let noteReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: noteID)).data
-        let noteData = try backend.run(service: 42, method: 6, request: noteReq)
+        var noteReqWriter = ProtoWriter()
+        _ = noteReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: noteID))
+        let noteData = try backend.run(service: 42, method: 6, request: noteReqWriter.data)
         let rawNote = ProtoReader.parseRawNote(data: noteData)
 
-        let notetypeReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: rawNote.notetypeID)).data
-        let notetypeData = try backend.run(service: 12, method: 6, request: notetypeReq)
+        var notetypeReqWriter = ProtoWriter()
+        _ = notetypeReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: rawNote.notetypeID))
+        let notetypeData = try backend.run(service: 12, method: 6, request: notetypeReqWriter.data)
         let notetypeFields = ProtoReader.parseNotetypeFields(data: notetypeData)
 
         var front = ""
@@ -410,19 +413,22 @@ final class AnkiRSLibBackend {
 
     static func updateNote(cardID: Int64, front: String, back: String) throws {
         let backend = try AnkiRSLibBackend()
-        let cardReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: cardID)).data
-        let cardData = try backend.run(service: 10, method: 0, request: cardReq)
+        var cardReqWriter = ProtoWriter()
+        _ = cardReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: cardID))
+        let cardData = try backend.run(service: 10, method: 0, request: cardReqWriter.data)
         let cardReader = ProtoReader(data: cardData)
         guard let noteID = cardReader.readInt64Field(fieldNumber: 2) else {
             throw AnkiRSLibError.reviewFailed("Card not found")
         }
 
-        let noteReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: noteID)).data
-        let noteData = try backend.run(service: 42, method: 6, request: noteReq)
+        var noteReqWriter = ProtoWriter()
+        _ = noteReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: noteID))
+        let noteData = try backend.run(service: 42, method: 6, request: noteReqWriter.data)
         let rawNote = ProtoReader.parseRawNote(data: noteData)
 
-        let notetypeReq = ProtoWriter().writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: rawNote.notetypeID)).data
-        let notetypeData = try backend.run(service: 12, method: 6, request: notetypeReq)
+        var notetypeReqWriter = ProtoWriter()
+        _ = notetypeReqWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: rawNote.notetypeID))
+        let notetypeData = try backend.run(service: 12, method: 6, request: notetypeReqWriter.data)
         let notetypeFields = ProtoReader.parseNotetypeFields(data: notetypeData)
 
         let updatedFields = NoteActionMapper.updateFields(
@@ -432,16 +438,16 @@ final class AnkiRSLibBackend {
         )
 
         var noteWriter = ProtoWriter()
-        noteWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: rawNote.id))
-        if let guid = rawNote.guid { noteWriter.writeStringField(fieldNumber: 2, value: guid) }
-        noteWriter.writeVarintField(fieldNumber: 3, value: UInt64(bitPattern: rawNote.notetypeID))
-        if let mtime = rawNote.mtimeSecs { noteWriter.writeVarintField(fieldNumber: 4, value: UInt64(mtime)) }
-        if let usn = rawNote.usn { noteWriter.writeVarintField(fieldNumber: 5, value: UInt64(bitPattern: Int64(usn))) }
-        for tag in rawNote.tags { noteWriter.writeStringField(fieldNumber: 6, value: tag) }
-        for f in updatedFields { noteWriter.writeStringField(fieldNumber: 7, value: f) }
+        _ = noteWriter.writeVarintField(fieldNumber: 1, value: UInt64(bitPattern: rawNote.id))
+        if let guid = rawNote.guid { _ = noteWriter.writeStringField(fieldNumber: 2, value: guid) }
+        _ = noteWriter.writeVarintField(fieldNumber: 3, value: UInt64(bitPattern: rawNote.notetypeID))
+        if let mtime = rawNote.mtimeSecs { _ = noteWriter.writeVarintField(fieldNumber: 4, value: UInt64(mtime)) }
+        if let usn = rawNote.usn { _ = noteWriter.writeVarintField(fieldNumber: 5, value: UInt64(bitPattern: Int64(usn))) }
+        for tag in rawNote.tags { _ = noteWriter.writeStringField(fieldNumber: 6, value: tag) }
+        for f in updatedFields { _ = noteWriter.writeStringField(fieldNumber: 7, value: f) }
 
         var updateReqWriter = ProtoWriter()
-        updateReqWriter.writeMessageField(fieldNumber: 1, messageData: noteWriter.data)
+        _ = updateReqWriter.writeMessageField(fieldNumber: 1, messageData: noteWriter.data)
 
         _ = try backend.run(service: 42, method: 5, request: updateReqWriter.data)
     }
