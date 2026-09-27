@@ -358,9 +358,14 @@ final class RSLibViewModel: ObservableObject {
                 try fetchReviewQueue(deck)
             }.value
             guard activeReviewDeckID == deck.id,
-                  reviewCard?.id == visibleCard.id,
-                  let visibleIndex = cards.firstIndex(where: { $0.id == visibleCard.id }) else { return }
-            reviewQueue = Array(cards.dropFirst(visibleIndex + 1))
+                  reviewCard?.id == visibleCard.id else { return }
+            if let visibleIndex = cards.firstIndex(where: { $0.id == visibleCard.id }) {
+                let after = cards.dropFirst(visibleIndex + 1)
+                let before = cards.prefix(visibleIndex)
+                reviewQueue = Array(after + before)
+            } else {
+                reviewQueue = cards.filter { $0.id != visibleCard.id }
+            }
         } catch {
             guard activeReviewDeckID == deck.id else { return }
             errorMessage = error.localizedDescription
