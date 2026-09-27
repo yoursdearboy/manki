@@ -321,6 +321,82 @@ final class RSLibViewModelTests: XCTestCase {
         XCTAssertEqual(model.decks, [refreshedDeck])
     }
 
+    func testRefillReviewQueuePreservesCardsReinsertedBeforeVisibleCard() async throws {
+        let deck = try deck(id: 1, name: "Deck", due: 3)
+        let card1 = ReviewCard(id: 10, question: "Card 1", answer: "Answer 1")
+        let card2 = ReviewCard(id: 20, question: "Card 2", answer: "Answer 2")
+        let card3 = ReviewCard(id: 30, question: "Card 3", answer: "Answer 3")
+
+        var fetchCount = 0
+        let model = RSLibViewModel(
+            decks: [deck],
+            isAuthenticated: true,
+            loadCachedDecks: { [deck] },
+            fetchReviewQueue: { _ in
+                fetchCount += 1
+                if fetchCount == 1 {
+                    return [card1, card2, card3]
+                } else {
+                    // Card 1 was answered 'again' and placed at index 0 of queue
+                    return [card1, card2, card3]
+                }
+            },
+            badgeSetter: NoopBadgeSetter()
+        )
+
+        await model.loadNextCard(in: deck)
+        XCTAssertEqual(model.reviewCard, card1)
+
+        // Answering card1 with again transitions to card2, and refills queue with [card3, card1]
+        await model.answer(card1, in: deck, rating: .again, elapsed: 1)
+        XCTAssertEqual(model.reviewCard, card2)
+
+        // Answering card2 transitions to card3
+        await model.answer(card2, in: deck, rating: .good, elapsed: 1)
+        XCTAssertEqual(model.reviewCard, card3)
+
+        // Answering card3 transitions to card1 (which was preserved in queue!)
+        await model.answer(card3, in: deck, rating: .good, elapsed: 1)
+        XCTAssertEqual(model.reviewCard, card1)
+    }
+
+    func testRefillReviewQueueUpdatesQueueWhenVisibleCardIsMissingFromFetchedCards() async throws {
+        let deck = try deck(id: 1, name: "Deck", due: 3)
+        let card1 = ReviewCard(id: 10, question: "Card 1", answer: "Answer 1")
+        let card2 = ReviewCard(id: 20, question: "Card 2", answer: "Answer 2")
+        let card3 = ReviewCard(id: 30, question: "Card 3", answer: "Answer 3")
+        let card4 = ReviewCard(id: 40, question: "Card 4", answer: "Answer 4")
+
+        var fetchCount = 0
+        let model = RSLibViewModel(
+            decks: [deck],
+            isAuthenticated: true,
+            loadCachedDecks: { [deck] },
+            fetchReviewQueue: { _ in
+                fetchCount += 1
+                if fetchCount == 1 {
+                    return [card1, card2, card3]
+                } else {
+                    // card2 was removed / expired from queue, fetch returns [card3, card4]
+                    return [card3, card4]
+                }
+            },
+            badgeSetter: NoopBadgeSetter()
+        )
+
+        await model.loadNextCard(in: deck)
+        XCTAssertEqual(model.reviewCard, card1)
+
+        await model.answer(card1, in: deck, rating: .good, elapsed: 1)
+        XCTAssertEqual(model.reviewCard, card2)
+
+        await model.answer(card2, in: deck, rating: .good, elapsed: 1)
+        XCTAssertEqual(model.reviewCard, card3)
+
+        await model.answer(card3, in: deck, rating: .good, elapsed: 1)
+        XCTAssertEqual(model.reviewCard, card4)
+    }
+
     func testSettingFlagPersistsAndUpdatesVisibleCard() async throws {
         let deck = try deck(id: 1, name: "Deck")
         let card = ReviewCard(id: 10, question: "Question", answer: "Answer")
