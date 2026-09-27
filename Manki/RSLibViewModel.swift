@@ -130,6 +130,9 @@ final class RSLibViewModel: ObservableObject {
     private let fetchReviewQueue: (Deck) throws -> [ReviewCard]
     private let submitAnswer: (ReviewCard, Deck, CardRating, UInt32) throws -> Void
     private let setCardFlag: (ReviewCard, CardFlag) throws -> Void
+    private let createNote: (Int64, String, String) throws -> Void
+    private let fetchNoteFieldsClosure: (Int64) throws -> (front: String, back: String)
+    private let updateNoteClosure: (Int64, String, String) throws -> Void
     private let badgeController: AppIconBadgeController
     private var hasRestoredSession = false
     private var isLoadingCache = false
@@ -152,6 +155,9 @@ final class RSLibViewModel: ObservableObject {
         fetchReviewQueue: ((Deck) throws -> [ReviewCard])? = nil,
         submitAnswer: @escaping (ReviewCard, Deck, CardRating, UInt32) throws -> Void = AnkiRSLibBackend.answer,
         setCardFlag: @escaping (ReviewCard, CardFlag) throws -> Void = AnkiRSLibBackend.setFlag,
+        createNote: @escaping (Int64, String, String) throws -> Void = AnkiRSLibBackend.addNote,
+        fetchNoteFields: @escaping (Int64) throws -> (front: String, back: String) = AnkiRSLibBackend.fetchNoteFields,
+        updateNote: @escaping (Int64, String, String) throws -> Void = AnkiRSLibBackend.updateNote,
         badgeSetter: any AppIconBadgeSetting = UserNotificationBadgeSetter()
     ) {
         self.fixture = fixture
@@ -165,6 +171,9 @@ final class RSLibViewModel: ObservableObject {
         } ?? AnkiRSLibBackend.reviewQueue
         self.submitAnswer = submitAnswer
         self.setCardFlag = setCardFlag
+        self.createNote = createNote
+        self.fetchNoteFieldsClosure = fetchNoteFields
+        self.updateNoteClosure = updateNote
         badgeController = AppIconBadgeController(setter: badgeSetter)
 
         guard let fixture, fixture != .signIn else { return }
@@ -183,6 +192,65 @@ final class RSLibViewModel: ObservableObject {
     var lastSyncedText: String {
         if fixture != nil { return "Synced with UI test fixtures" }
         return lastSynced.map { "Synced \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Pull to refresh your collection"
+    }
+
+    func addCard(deckID: Int64, front: String, back: String) async throws {
+        let trimmedFront = front.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedFront.isEmpty else {
+            throw ValidationError.emptyFront
+        }
+        guard fixture == nil else { return }
+        try await Task.detached(priority: .userInitiated) { [createNote] in
+            try createNote(deckID, trimmedFront, back)
+        }.value
+        await refreshDueCounts()
+    }
+
+    func fetchCurrentNoteFields(cardID: Int64) async throws -> (front: String, back: String) {
+        if fixture != nil {
+            return (reviewCard?.question ?? "", reviewCard?.answer ?? "")
+        }
+        return try await Task.detached(priority: .userInitiated) { [fetchNoteFieldsClosure] in
+            try fetchNoteFieldsClosure(cardID)
+        }.value
+    }
+
+    func updateCurrentCard(cardID: Int64, front: String, back: String) async throws {
+        let trimmedFront = front.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedFront.isEmpty else {
+            throw ValidationError.emptyFront
+        }
+        guard fixture == nil else {
+            if let current = reviewCard {
+                reviewCard = ReviewCard(
+                    id: current.id,
+                    question: trimmedFront,
+                    answer: back,
+                    questionAudio: current.questionAudio,
+                    answerAudio: current.answerAudio,
+                    flag: current.flag
+                )
+            }
+            return
+        }
+        try await Task.detached(priority: .userInitiated) { [updateNoteClosure] in
+            try updateNoteClosure(cardID, trimmedFront, back)
+        }.value
+        if let current = reviewCard, current.id == cardID {
+            reviewCard = ReviewCard(
+                id: current.id,
+                question: trimmedFront,
+                answer: back,
+                questionAudio: current.questionAudio,
+                answerAudio: current.answerAudio,
+                flag: current.flag
+            )
+        }
+    }
+
+    enum ValidationError: LocalizedError {
+        case emptyFront
+        var errorDescription: String? { "Front field cannot be blank." }
     }
 
     func restoreSession() async {

@@ -1,8 +1,6 @@
 name: iOS UI screenshots
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       include_landscape_screenshots:
@@ -38,7 +36,6 @@ jobs:
         run: scripts/test-linux.sh
 
   screenshots:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-15
     timeout-minutes: 60
     env:
